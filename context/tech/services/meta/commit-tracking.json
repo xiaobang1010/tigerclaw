@@ -1,0 +1,25 @@
+{
+  "last_analyzed_commit": null,
+  "analyzed_commits": [],
+  "pending_commits": [],
+  "coverage": {
+    "total_commits": 0,
+    "analyzed": 0,
+    "percentage": 0
+  },
+  "last_update": null,
+  "batches_completed": 0,
+  "services_covered": [
+    "gateway",
+    "agents",
+    "providers",
+    "memory",
+    "channels",
+    "skills",
+    "plugins",
+    "secrets",
+    "cron",
+    "daemon",
+    "browser"
+  ]
+}

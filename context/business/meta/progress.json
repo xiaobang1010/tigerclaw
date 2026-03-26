@@ -1,0 +1,61 @@
+{
+  "domains": {
+    "session": {
+      "status": "completed",
+      "completed_at": "2026-03-26T15:30:00Z",
+      "files_analyzed": [
+        "src/tigerclaw/gateway/session_manager.py",
+        "src/tigerclaw/gateway/http_server.py",
+        "src/tigerclaw/gateway/websocket_server.py"
+      ],
+      "flows_count": 3,
+      "rules_count": 4
+    },
+    "agent": {
+      "status": "completed",
+      "completed_at": "2026-03-26T15:30:00Z",
+      "files_analyzed": [
+        "src/tigerclaw/agents/runtime.py",
+        "src/tigerclaw/agents/tools.py",
+        "src/tigerclaw/agents/context.py"
+      ],
+      "flows_count": 3,
+      "rules_count": 5
+    },
+    "memory": {
+      "status": "completed",
+      "completed_at": "2026-03-26T15:30:00Z",
+      "files_analyzed": [
+        "src/tigerclaw/memory/manager.py",
+        "src/tigerclaw/memory/store.py",
+        "src/tigerclaw/memory/embeddings.py",
+        "src/tigerclaw/memory/search.py"
+      ],
+      "flows_count": 2,
+      "rules_count": 4
+    },
+    "cron": {
+      "status": "completed",
+      "completed_at": "2026-03-26T15:30:00Z",
+      "files_analyzed": [
+        "src/tigerclaw/cron/service.py",
+        "src/tigerclaw/cron/scheduler.py",
+        "src/tigerclaw/cron/store.py"
+      ],
+      "flows_count": 2,
+      "rules_count": 4
+    },
+    "secrets": {
+      "status": "completed",
+      "completed_at": "2026-03-26T15:30:00Z",
+      "files_analyzed": [
+        "src/tigerclaw/secrets/manager.py",
+        "src/tigerclaw/secrets/store.py",
+        "src/tigerclaw/secrets/crypto.py",
+        "src/tigerclaw/secrets/audit.py"
+      ],
+      "flows_count": 3,
+      "rules_count": 4
+    }
+  }
+}

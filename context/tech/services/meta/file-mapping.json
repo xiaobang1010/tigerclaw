@@ -1,0 +1,108 @@
+{
+  "file_to_doc_mapping": {
+    "src/tigerclaw/gateway/": "services/gateway.md",
+    "src/tigerclaw/agents/": "services/agents.md",
+    "src/tigerclaw/providers/": "services/providers.md",
+    "src/tigerclaw/memory/": "services/memory.md",
+    "src/tigerclaw/channels/": "services/channels.md",
+    "src/tigerclaw/skills/": "services/skills.md",
+    "src/tigerclaw/plugins/": "services/plugins.md",
+    "src/tigerclaw/secrets/": "services/secrets.md",
+    "src/tigerclaw/cron/": "services/cron.md",
+    "src/tigerclaw/daemon/": "services/daemon.md",
+    "src/tigerclaw/browser/": "services/browser.md",
+    "src/tigerclaw/config/": "README.md",
+    "src/tigerclaw/cli/": "README.md"
+  },
+  "doc_to_file_mapping": {
+    "services/gateway.md": [
+      "src/tigerclaw/gateway/__init__.py",
+      "src/tigerclaw/gateway/server.py",
+      "src/tigerclaw/gateway/http_server.py",
+      "src/tigerclaw/gateway/websocket_server.py",
+      "src/tigerclaw/gateway/session_manager.py",
+      "src/tigerclaw/gateway/health.py",
+      "src/tigerclaw/gateway/config_reload.py"
+    ],
+    "services/agents.md": [
+      "src/tigerclaw/agents/__init__.py",
+      "src/tigerclaw/agents/runtime.py",
+      "src/tigerclaw/agents/context.py",
+      "src/tigerclaw/agents/tools.py",
+      "src/tigerclaw/agents/model_catalog.py",
+      "src/tigerclaw/agents/failover.py",
+      "src/tigerclaw/agents/compaction.py"
+    ],
+    "services/providers.md": [
+      "src/tigerclaw/providers/__init__.py",
+      "src/tigerclaw/providers/base.py",
+      "src/tigerclaw/providers/openai/provider.py",
+      "src/tigerclaw/providers/anthropic/provider.py",
+      "src/tigerclaw/providers/minimax/provider.py",
+      "src/tigerclaw/providers/openrouter/provider.py",
+      "src/tigerclaw/providers/custom/provider.py"
+    ],
+    "services/memory.md": [
+      "src/tigerclaw/memory/__init__.py",
+      "src/tigerclaw/memory/manager.py",
+      "src/tigerclaw/memory/store.py",
+      "src/tigerclaw/memory/embeddings.py",
+      "src/tigerclaw/memory/search.py",
+      "src/tigerclaw/memory/types.py"
+    ],
+    "services/channels.md": [
+      "src/tigerclaw/channels/__init__.py",
+      "src/tigerclaw/channels/base.py",
+      "src/tigerclaw/channels/manager.py",
+      "src/tigerclaw/channels/feishu/channel.py"
+    ],
+    "services/skills.md": [
+      "src/tigerclaw/skills/__init__.py",
+      "src/tigerclaw/skills/base.py",
+      "src/tigerclaw/skills/registry.py",
+      "src/tigerclaw/skills/executor.py",
+      "src/tigerclaw/skills/loader.py",
+      "src/tigerclaw/skills/builtin/calculator.py",
+      "src/tigerclaw/skills/builtin/web_search.py"
+    ],
+    "services/plugins.md": [
+      "src/tigerclaw/plugins/__init__.py",
+      "src/tigerclaw/plugins/base.py",
+      "src/tigerclaw/plugins/registry.py",
+      "src/tigerclaw/plugins/loader.py",
+      "src/tigerclaw/plugins/lifecycle.py",
+      "src/tigerclaw/plugins/http_routes.py"
+    ],
+    "services/secrets.md": [
+      "src/tigerclaw/secrets/__init__.py",
+      "src/tigerclaw/secrets/manager.py",
+      "src/tigerclaw/secrets/store.py",
+      "src/tigerclaw/secrets/crypto.py",
+      "src/tigerclaw/secrets/audit.py",
+      "src/tigerclaw/secrets/types.py"
+    ],
+    "services/cron.md": [
+      "src/tigerclaw/cron/__init__.py",
+      "src/tigerclaw/cron/service.py",
+      "src/tigerclaw/cron/scheduler.py",
+      "src/tigerclaw/cron/store.py",
+      "src/tigerclaw/cron/types.py"
+    ],
+    "services/daemon.md": [
+      "src/tigerclaw/daemon/__init__.py",
+      "src/tigerclaw/daemon/service.py",
+      "src/tigerclaw/daemon/types.py",
+      "src/tigerclaw/daemon/windows.py",
+      "src/tigerclaw/daemon/systemd.py",
+      "src/tigerclaw/daemon/launchd.py"
+    ],
+    "services/browser.md": [
+      "src/tigerclaw/browser/__init__.py",
+      "src/tigerclaw/browser/service.py",
+      "src/tigerclaw/browser/actions.py",
+      "src/tigerclaw/browser/types.py"
+    ]
+  },
+  "version": "1.0.0",
+  "generated_at": "2026-03-26T15:00:00Z"
+}
