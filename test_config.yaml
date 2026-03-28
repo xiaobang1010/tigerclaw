@@ -1,0 +1,36 @@
+# TigerClaw 配置文件
+
+# Gateway 配置
+gateway:
+  bind: loopback
+  port: 18789
+  auth:
+    pairing_enabled: true
+
+# 模型配置
+models:
+  default: gpt-4
+  models:
+    - id: gpt-4
+      provider: openai
+      context_window: 128000
+      supports_vision: true
+      supports_tools: true
+
+# 渠道配置
+channels:
+  feishu:
+    enabled: false
+  slack:
+    enabled: false
+
+# 代理配置
+agents:
+  main:
+    model: gpt-4
+    temperature: 0.7
+
+# 日志配置
+logging:
+  level: INFO
+  file_enabled: false

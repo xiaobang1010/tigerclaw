@@ -1,192 +1,88 @@
-"""Gateway 服务器主模块 - 统一管理 HTTP 和 WebSocket 服务"""
+"""Gateway 主服务器。
 
-from __future__ import annotations
+整合 HTTP 和 WebSocket 服务的 FastAPI 应用。
+"""
 
-import asyncio
-import logging
+import time
 from contextlib import asynccontextmanager
-from typing import Any
 
-import uvicorn
 from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
-from tigerclaw.config import AppSettings, get_settings
-from tigerclaw.gateway.http_server import create_http_app
-from tigerclaw.gateway.session_manager import SessionManager
-from tigerclaw.gateway.websocket_server import WebSocketServer
-
-logger = logging.getLogger(__name__)
-
-
-class GatewayServer:
-    """Gateway 服务器
-
-    TigerClaw 的核心控制平面，负责：
-    - HTTP API 服务
-    - WebSocket 实时通信
-    - 会话管理
-    - 配置集成
-    """
-
-    def __init__(
-        self,
-        settings: AppSettings | None = None,
-        host: str | None = None,
-        port: int | None = None,
-    ):
-        """初始化 Gateway 服务器
-
-        Args:
-            settings: 应用配置，不提供则使用默认配置
-            host: 服务主机地址，覆盖配置中的设置
-            port: 服务端口，覆盖配置中的设置
-        """
-        self._settings = settings or get_settings()
-        self._host = host or self._settings.gateway.host
-        self._port = port or self._settings.gateway.port
-
-        self._session_manager = SessionManager(
-            idle_timeout_ms=3600000,
-            archive_retention_days=30,
-        )
-        self._ws_server = WebSocketServer(self._session_manager)
-        self._app: FastAPI | None = None
-        self._server: uvicorn.Server | None = None
-        self._running = False
-
-    @property
-    def host(self) -> str:
-        """获取服务主机地址"""
-        return self._host
-
-    @property
-    def port(self) -> int:
-        """获取服务端口"""
-        return self._port
-
-    @property
-    def is_running(self) -> bool:
-        """检查服务是否正在运行"""
-        return self._running
-
-    @property
-    def session_manager(self) -> SessionManager:
-        """获取会话管理器"""
-        return self._session_manager
-
-    @property
-    def websocket_server(self) -> WebSocketServer:
-        """获取 WebSocket 服务器"""
-        return self._ws_server
-
-    def _create_app(self) -> FastAPI:
-        """创建 FastAPI 应用
-
-        Returns:
-            FastAPI 应用实例
-        """
-        @asynccontextmanager
-        async def lifespan(app: FastAPI):
-            await self._startup()
-            yield
-            await self._shutdown()
-
-        app = FastAPI(
-            title="TigerClaw Gateway",
-            description="AI Agent Gateway Service",
-            version="0.1.0",
-            lifespan=lifespan,
-        )
-
-        app.include_router(self._ws_server.router)
-        http_app = create_http_app(self._session_manager)
-        app.include_router(http_app.router)
-
-        return app
-
-    async def _startup(self) -> None:
-        """启动时的初始化"""
-        logger.info(f"Gateway 服务启动: {self._host}:{self._port}")
-        self._running = True
-
-    async def _shutdown(self) -> None:
-        """关闭时的清理"""
-        logger.info("Gateway 服务关闭")
-        self._running = False
-        await self._ws_server.close()
-
-    async def start(self) -> None:
-        """启动服务器"""
-        if self._running:
-            logger.warning("服务器已在运行")
-            return
-
-        self._app = self._create_app()
-        config = uvicorn.Config(
-            app=self._app,
-            host=self._host,
-            port=self._port,
-            log_level="info",
-        )
-        self._server = uvicorn.Server(config)
-        await self._server.serve()
-
-    async def stop(self) -> None:
-        """停止服务器"""
-        if self._server:
-            self._server.should_exit = True
-            self._running = False
-
-    def run(self) -> None:
-        """同步方式运行服务器"""
-        asyncio.run(self.start())
+from tigerclaw import __version__
+from tigerclaw.core.config import load_config
+from tigerclaw.core.logging import setup_logging
+from tigerclaw.gateway.http import router as api_router
+from tigerclaw.gateway.websocket import websocket_endpoint
 
 
-async def run_gateway(
-    host: str | None = None,
-    port: int | None = None,
-    config_file: str | None = None,
-) -> None:
-    """运行 Gateway 服务
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理。"""
+    start_time = time.time()
+    app.state.start_time = start_time
 
-    Args:
-        host: 服务主机地址
-        port: 服务端口
-        config_file: 配置文件路径
-    """
-    if config_file:
-        from tigerclaw.config import reload_settings
-        reload_settings(config_file)
+    config = load_config()
+    app.state.config = config
 
-    server = GatewayServer(host=host, port=port)
-    await server.start()
+    setup_logging(
+        level=config.logging.level,
+        file_enabled=config.logging.file_enabled,
+        file_path=config.logging.file_path,
+    )
 
+    logger.info(f"TigerClaw Gateway 启动中... 版本: {__version__}")
+    logger.info(f"配置文件: {config}")
+    logger.info(f"认证模式: {config.gateway.auth.mode}")
 
-def main() -> None:
-    """命令行入口"""
-    import sys
+    yield
 
-    host = None
-    port = None
-    config_file = None
-
-    args = sys.argv[1:]
-    i = 0
-    while i < len(args):
-        if args[i] in ("--host", "-h") and i + 1 < len(args):
-            host = args[i + 1]
-            i += 2
-        elif args[i] in ("--port", "-p") and i + 1 < len(args):
-            port = int(args[i + 1])
-            i += 2
-        elif args[i] in ("--config", "-c") and i + 1 < len(args):
-            config_file = args[i + 1]
-            i += 2
-        else:
-            i += 1
-
-    asyncio.run(run_gateway(host=host, port=port, config_file=config_file))
+    logger.info("TigerClaw Gateway 关闭中...")
 
 
-if __name__ == "__main__":
-    main()
+app = FastAPI(
+    title="TigerClaw Gateway",
+    description="TigerClaw - OpenClaw Python Implementation",
+    version=__version__,
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(api_router, prefix="/api/v1")
+
+
+@app.websocket("/ws")
+async def websocket_route(websocket: WebSocket):
+    """WebSocket 路由。"""
+    await websocket_endpoint(websocket)
+
+
+@app.get("/health")
+async def health_check():
+    """健康检查端点。"""
+    uptime = time.time() - getattr(app.state, "start_time", time.time())
+    return {
+        "status": "healthy",
+        "version": __version__,
+        "uptime": uptime,
+    }
+
+
+@app.get("/")
+async def root():
+    """根路径。"""
+    return {
+        "name": "TigerClaw Gateway",
+        "version": __version__,
+        "docs": "/docs",
+        "health": "/health",
+        "websocket": "/ws",
+    }

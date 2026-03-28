@@ -1,129 +1,170 @@
 # TigerClaw 业务逻辑概览
 
-## 项目定位
+## 项目简介
 
-TigerClaw 是一个 **AI Agent Gateway**（AI 代理网关），提供统一的 AI Agent 接入服务。它作为 AI 模型与外部系统之间的桥梁，处理请求路由、会话管理、记忆存储等核心业务。
+TigerClaw 是一个 AI Agent 网关服务，提供统一的 LLM 调用接口、会话管理、工具执行等能力。本文档描述系统的核心业务逻辑。
 
 ## 业务领域
 
-TigerClaw 的业务逻辑按以下领域组织：
+TigerClaw 包含以下核心业务领域：
 
-| 领域 | 核心职责 | 关键业务实体 |
-|------|----------|--------------|
-| **Session** | 会话生命周期管理 | Session, Message |
-| **Agent** | Agent 运行时与 LLM 交互 | AgentRuntime, ToolCall |
-| **Memory** | 长期记忆存储与检索 | MemoryEntry, SearchResult |
-| **Cron** | 定时任务调度 | CronJob, ExecutionResult |
-| **Secrets** | 密钥安全管理 | Secret, AuditEntry |
+| 领域 | 描述 | 优先级 |
+|------|------|--------|
+| 认证 (Authentication) | 网关访问认证与授权 | Critical |
+| 会话 (Session) | 用户会话生命周期管理 | Critical |
+| 聊天 (Chat) | LLM 对话交互处理 | Critical |
+| 故障转移 (Failover) | LLM 调用失败处理 | High |
+| 插件 (Plugin) | 扩展功能管理 | Medium |
+
+## 业务架构图
+
+```mermaid
+graph TB
+    subgraph 外部接入
+        HTTP[HTTP 客户端]
+        WS[WebSocket 客户端]
+        CLI[CLI 客户端]
+    end
+
+    subgraph 认证领域
+        AUTH[认证处理]
+        TOKEN[Token 验证]
+        PASSWORD[密码验证]
+        TAILSCALE[Tailscale 认证]
+        PROXY[可信代理认证]
+        RATE[速率限制]
+    end
+
+    subgraph 会话领域
+        SESSION[会话管理]
+        CREATE[创建会话]
+        ACTIVATE[激活会话]
+        ARCHIVE[归档会话]
+        STORE[会话存储]
+    end
+
+    subgraph 聊天领域
+        CHAT[聊天处理]
+        STREAM[流式响应]
+        COMPLETE[完整响应]
+        TOOL[工具调用]
+    end
+
+    subgraph 故障转移领域
+        FAILOVER[故障转移]
+        RETRY[重试策略]
+        ROTATE[认证轮换]
+        FALLBACK[模型降级]
+    end
+
+    subgraph 插件领域
+        PLUGIN[插件系统]
+        DISCOVER[插件发现]
+        LOAD[插件加载]
+        EXEC[插件执行]
+    end
+
+    HTTP --> AUTH
+    WS --> AUTH
+    CLI --> AUTH
+
+    AUTH --> TOKEN
+    AUTH --> PASSWORD
+    AUTH --> TAILSCALE
+    AUTH --> PROXY
+    AUTH --> RATE
+
+    AUTH --> SESSION
+    SESSION --> CREATE
+    SESSION --> ACTIVATE
+    SESSION --> ARCHIVE
+    SESSION --> STORE
+
+    SESSION --> CHAT
+    CHAT --> STREAM
+    CHAT --> COMPLETE
+    CHAT --> TOOL
+
+    CHAT --> FAILOVER
+    FAILOVER --> RETRY
+    FAILOVER --> ROTATE
+    FAILOVER --> FALLBACK
+
+    CHAT --> PLUGIN
+    PLUGIN --> DISCOVER
+    PLUGIN --> LOAD
+    PLUGIN --> EXEC
+```
 
 ## 核心业务流程
 
-### 1. 请求处理流程
+### 1. 用户请求处理流程
 
 ```
-客户端请求 → Gateway 接收 → Session 查找/创建 → Agent 执行 → 响应返回
+用户请求 → 认证验证 → 会话获取/创建 → 聊天处理 → 响应返回
+                ↓
+           认证失败 → 速率限制检查 → 返回错误
 ```
 
-### 2. Agent 执行流程
+### 2. 聊天交互流程
 
 ```
-用户消息 → 上下文构建 → LLM 调用 → 工具执行(可选) → 结果整合 → 响应生成
+接收消息 → 添加到上下文 → 调用 LLM → 处理响应 → 更新会话
+                              ↓
+                        调用失败 → 故障转移 → 重试/降级
 ```
 
-### 3. 会话生命周期
+### 3. 故障转移流程
 
 ```
-创建 → 活跃 → 空闲 → 归档 → 关闭
+错误发生 → 错误分类 → 策略选择 → 执行策略 → 恢复/终止
+                              ↓
+                    重试/认证轮换/模型降级/终止
 ```
 
 ## 业务规则概览
 
-### 会话管理规则
+### 认证规则
 
-| 规则ID | 规则名称 | 描述 |
-|--------|----------|------|
-| SR-001 | 会话超时 | 空闲超过 1 小时的会话转为归档状态 |
-| SR-002 | 消息保留 | 归档会话保留 30 天后自动清理 |
-| SR-003 | 并发限制 | 单个会话同时只能有一个活跃请求 |
+| 规则ID | 描述 |
+|--------|------|
+| AUTH-001 | Token 认证必须匹配配置的 Token |
+| AUTH-002 | 密码认证必须匹配配置的密码 |
+| AUTH-003 | 可信代理必须来自配置的代理地址 |
+| AUTH-004 | 认证失败触发速率限制 |
 
-### Agent 执行规则
+### 会话规则
 
-| 规则ID | 规则名称 | 描述 |
-|--------|----------|------|
-| AR-001 | 工具迭代限制 | 单次请求最多执行 10 轮工具调用 |
-| AR-002 | 超时控制 | 单次 LLM 调用超时时间为 60 秒 |
-| AR-003 | 上下文压缩 | 上下文超过模型窗口时自动压缩 |
+| 规则ID | 描述 |
+|--------|------|
+| SESS-001 | 会话 ID 不提供时自动生成 |
+| SESS-002 | 会话空闲超时后自动归档 |
+| SESS-003 | 会话消息数量计入 Token 统计 |
 
-### 密钥管理规则
+### 聊天规则
 
-| 规则ID | 规则名称 | 描述 |
-|--------|----------|------|
-| SEC-001 | 加密存储 | 所有密钥必须加密后存储 |
-| SEC-002 | 访问审计 | 所有密钥访问操作必须记录审计日志 |
-| SEC-003 | 命名空间隔离 | 不同环境的密钥通过命名空间隔离 |
+| 规则ID | 描述 |
+|--------|------|
+| CHAT-001 | 模型名称决定提供商选择 |
+| CHAT-002 | 流式响应通过 WebSocket 回调 |
+| CHAT-003 | 工具调用结果添加到上下文 |
 
-## 状态机概览
+### 故障转移规则
 
-### Session 状态机
+| 规则ID | 描述 |
+|--------|------|
+| FAIL-001 | 速率限制错误触发认证轮换 |
+| FAIL-002 | 超时错误触发重试 |
+| FAIL-003 | 上下文过长错误直接终止 |
 
-```
-CREATED → IDLE → ACTIVE → IDLE → ARCHIVED → CLOSED
-                ↓
-              ERROR
-```
+## 详细文档
 
-### CronJob 状态机
+- [认证领域](domains/authentication/state-machine.md)
+- [会话领域](domains/session/state-machine.md)
+- [聊天领域](domains/chat/flows/)
+- [故障转移领域](domains/failover/rules/)
+- [插件领域](domains/plugin/flows/)
 
-```
-IDLE → RUNNING → IDLE
-         ↓
-       ERROR
-```
+## 业务术语表
 
-### Secret 状态机
-
-```
-CREATED → ACTIVE → ROTATED → ACTIVE
-              ↓
-           DELETED
-```
-
-## 文档导航
-
-### 业务流程文档
-
-- [Session 领域](./domains/session/)
-  - [会话创建流程](./domains/session/flows/session-creation.md)
-  - [消息处理流程](./domains/session/flows/message-processing.md)
-  - [会话清理流程](./domains/session/flows/session-cleanup.md)
-
-- [Agent 领域](./domains/agent/)
-  - [Agent 执行流程](./domains/agent/flows/agent-execution.md)
-  - [工具调用流程](./domains/agent/flows/tool-execution.md)
-  - [上下文管理流程](./domains/agent/flows/context-management.md)
-
-- [Memory 领域](./domains/memory/)
-  - [记忆存储流程](./domains/memory/flows/memory-storage.md)
-  - [语义检索流程](./domains/memory/flows/semantic-search.md)
-
-- [Cron 领域](./domains/cron/)
-  - [任务调度流程](./domains/cron/job-scheduling.md)
-  - [任务执行流程](./domains/cron/job-execution.md)
-
-- [Secrets 领域](./domains/secrets/)
-  - [密钥存储流程](./domains/secrets/secret-storage.md)
-  - [密钥轮换流程](./domains/secrets/secret-rotation.md)
-
-### 状态机文档
-
-- [Session 状态机](./domains/session/state-machine.md)
-- [CronJob 状态机](./domains/cron/state-machine.md)
-
-### 业务规则文档
-
-- [Session 业务规则](./domains/session/rules/)
-- [Agent 业务规则](./domains/agent/rules/)
-
-## 术语表
-
-详见 [glossary.md](./glossary.md)
+参见 [glossary.md](glossary.md)

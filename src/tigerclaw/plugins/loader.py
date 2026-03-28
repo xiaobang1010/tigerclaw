@@ -1,430 +1,163 @@
-"""插件加载器
+"""插件加载器。
 
-本模块实现插件加载器，负责自动发现和加载插件。"""
+加载和初始化插件。
+"""
 
-import importlib
 import importlib.util
-import json
-import logging
-from dataclasses import dataclass, field
-from pathlib import Path
+import sys
 from typing import Any
 
-from .base import (
-    PluginBase,
-    PluginContext,
-    PluginKind,
-    PluginMetadata,
-)
-from .registry import PluginRegistry, get_registry
+from loguru import logger
 
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class PluginManifest:
-    """插件清单"""
-    id: str
-    name: str
-    version: str = "1.0.0"
-    description: str = ""
-    author: str = ""
-    kind: str = "tool"
-    entry_point: str = "plugin"
-    dependencies: list[str] = field(default_factory=list)
-    provides: list[str] = field(default_factory=list)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PluginManifest":
-        """从字典创建清单"""
-        return cls(
-            id=data.get("id", ""),
-            name=data.get("name", ""),
-            version=data.get("version", "1.0.0"),
-            description=data.get("description", ""),
-            author=data.get("author", ""),
-            kind=data.get("kind", "tool"),
-            entry_point=data.get("entry_point", "plugin"),
-            dependencies=data.get("dependencies", []),
-            provides=data.get("provides", []),
-        )
-
-
-@dataclass
-class LoadResult:
-    """加载结果"""
-    success: bool
-    plugin_id: str
-    plugin: PluginBase | None = None
-    error: str | None = None
-    source: str = "unknown"
+from tigerclaw.plugins.discovery import DiscoveredPlugin
+from tigerclaw.plugins.types import BasePlugin, PluginContext
 
 
 class PluginLoader:
-    """插件加载器
+    """插件加载器。"""
 
-    负责发现、加载和初始化插件。
-    """
+    def __init__(self) -> None:
+        """初始化加载器。"""
+        self._loaded: dict[str, BasePlugin] = {}
+        self._contexts: dict[str, PluginContext] = {}
 
-    MANIFEST_FILE = "tigerclaw.plugin.json"
-    ENTRY_POINT_ATTR = "plugin"
-
-    def __init__(
+    async def load(
         self,
-        registry: PluginRegistry | None = None,
-        logger: logging.Logger | None = None
-    ):
-        self._registry = registry or get_registry()
-        self._logger = logger or logging.getLogger(__name__)
-        self._loaded_paths: dict[str, str] = {}
-
-    @property
-    def registry(self) -> PluginRegistry:
-        """获取注册表"""
-        return self._registry
-
-    def discover(self, search_paths: list[str]) -> list[Path]:
-        """发现插件目录
+        discovered: DiscoveredPlugin,
+        config: dict[str, Any] | None = None,
+    ) -> BasePlugin | None:
+        """加载插件。
 
         Args:
-            search_paths: 搜索路径列表
+            discovered: 发现的插件信息。
+            config: 插件配置。
 
         Returns:
-            包含插件清单的目录列表
+            加载的插件实例，失败返回 None。
         """
-        discovered = []
+        manifest = discovered.manifest
+        plugin_id = manifest.id
 
-        for search_path in search_paths:
-            path = Path(search_path)
-            if not path.exists():
-                continue
-
-            if path.is_file() and path.name == self.MANIFEST_FILE:
-                discovered.append(path.parent)
-                continue
-
-            if path.is_dir():
-                for item in path.iterdir():
-                    if item.is_dir():
-                        manifest = item / self.MANIFEST_FILE
-                        if manifest.exists():
-                            discovered.append(item)
-
-        return discovered
-
-    def load_manifest(self, plugin_dir: Path) -> PluginManifest | None:
-        """加载插件清单
-
-        Args:
-            plugin_dir: 插件目录
-
-        Returns:
-            插件清单，失败返回 None
-        """
-        manifest_path = plugin_dir / self.MANIFEST_FILE
-        if not manifest_path.exists():
-            self._logger.warning(f"Manifest not found: {manifest_path}")
-            return None
+        if plugin_id in self._loaded:
+            logger.warning(f"插件已加载: {plugin_id}")
+            return self._loaded[plugin_id]
 
         try:
-            with open(manifest_path, encoding="utf-8") as f:
-                data = json.load(f)
-            return PluginManifest.from_dict(data)
+            # 导入插件模块
+            plugin_class = self._import_plugin(discovered)
+
+            if plugin_class is None:
+                return None
+
+            # 创建插件实例
+            plugin = plugin_class(manifest)
+
+            # 创建上下文
+            context = PluginContext(
+                config=config or {},
+                logger=logger.bind(plugin=plugin_id),
+            )
+
+            # 初始化插件
+            await plugin.setup(context)
+
+            self._loaded[plugin_id] = plugin
+            self._contexts[plugin_id] = context
+
+            logger.info(f"插件加载成功: {manifest.name} v{manifest.version}")
+            return plugin
+
         except Exception as e:
-            self._logger.error(f"Failed to load manifest: {e}")
+            logger.error(f"插件加载失败: {plugin_id}, {e}")
             return None
 
-    def load_from_dir(
+    def _import_plugin(
         self,
-        plugin_dir: str,
-        context: PluginContext | None = None
-    ) -> LoadResult:
-        """从目录加载插件
+        discovered: DiscoveredPlugin,
+    ) -> type[BasePlugin] | None:
+        """导入插件模块。
+
         Args:
-            plugin_dir: 插件目录路径
-            context: 插件上下文
+            discovered: 发现的插件信息。
+
         Returns:
-            加载结果
+            插件类。
         """
-        plugin_path = Path(plugin_dir)
+        manifest = discovered.manifest
+        main_module = manifest.main
+
+        # 尝试直接导入
+        try:
+            module = importlib.import_module(main_module)
+            return self._find_plugin_class(module)
+        except ImportError:
+            pass
+
+        # 尝试从插件目录导入
+        plugin_path = discovered.path / main_module.replace(".", "/")
         if not plugin_path.exists():
-            return LoadResult(
-                success=False,
-                plugin_id="",
-                error=f"Plugin directory not found: {plugin_dir}",
-            )
+            plugin_path = discovered.path / f"{main_module.replace('.', '/')}.py"
 
-        manifest = self.load_manifest(plugin_path)
-        if not manifest:
-            return LoadResult(
-                success=False,
-                plugin_id="",
-                error=f"Failed to load manifest from: {plugin_dir}",
-            )
-
-        return self._load_plugin(plugin_path, manifest, context)
-
-    def load_from_module(
-        self,
-        module_name: str,
-        context: PluginContext | None = None
-    ) -> LoadResult:
-        """从模块加载插件
-        Args:
-            module_name: 模块名称
-            context: 插件上下文
-        Returns:
-            加载结果
-        """
-        try:
-            module = importlib.import_module(module_name)
-            plugin = getattr(module, self.ENTRY_POINT_ATTR, None)
-
-            if plugin is None:
-                return LoadResult(
-                    success=False,
-                    plugin_id="",
-                    error=f"Plugin entry point '{self.ENTRY_POINT_ATTR}' not found in module: {module_name}",
-                )
-
-            if not isinstance(plugin, PluginBase):
-                return LoadResult(
-                    success=False,
-                    plugin_id="",
-                    error=f"Entry point is not a PluginBase instance: {module_name}",
-                )
-
-            return self._register_plugin(plugin, module_name, context)
-
-        except ImportError as e:
-            return LoadResult(
-                success=False,
-                plugin_id="",
-                error=f"Failed to import module: {module_name}, error: {e}",
-            )
-        except Exception as e:
-            return LoadResult(
-                success=False,
-                plugin_id="",
-                error=f"Unexpected error loading module: {module_name}, error: {e}",
-            )
-
-    def load_from_file(
-        self,
-        file_path: str,
-        context: PluginContext | None = None
-    ) -> LoadResult:
-        """从文件加载插件
-        Args:
-            file_path: 插件文件路径
-            context: 插件上下文
-        Returns:
-            加载结果
-        """
-        path = Path(file_path)
-        if not path.exists():
-            return LoadResult(
-                success=False,
-                plugin_id="",
-                error=f"Plugin file not found: {file_path}",
-            )
-
-        try:
+        if plugin_path.exists():
             spec = importlib.util.spec_from_file_location(
-                path.stem,
-                path
+                f"tigerclaw.plugins.{manifest.id}",
+                plugin_path,
             )
-            if spec is None or spec.loader is None:
-                return LoadResult(
-                    success=False,
-                    plugin_id="",
-                    error=f"Failed to create module spec: {file_path}",
-                )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = module
+                spec.loader.exec_module(module)
+                return self._find_plugin_class(module)
 
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+        logger.error(f"无法导入插件模块: {main_module}")
+        return None
 
-            plugin = getattr(module, self.ENTRY_POINT_ATTR, None)
-            if plugin is None:
-                return LoadResult(
-                    success=False,
-                    plugin_id="",
-                    error=f"Plugin entry point '{self.ENTRY_POINT_ATTR}' not found in file: {file_path}",
-                )
+    def _find_plugin_class(self, module: Any) -> type[BasePlugin] | None:
+        """在模块中查找插件类。"""
+        for name in dir(module):
+            obj = getattr(module, name)
+            if isinstance(obj, type) and issubclass(obj, BasePlugin) and obj is not BasePlugin:
+                return obj
+        return None
 
-            if not isinstance(plugin, PluginBase):
-                return LoadResult(
-                    success=False,
-                    plugin_id="",
-                    error=f"Entry point is not a PluginBase instance: {file_path}",
-                )
-
-            return self._register_plugin(plugin, str(path), context)
-
-        except Exception as e:
-            return LoadResult(
-                success=False,
-                plugin_id="",
-                error=f"Failed to load plugin from file: {file_path}, error: {e}",
-            )
-
-    def load_all(
-        self,
-        search_paths: list[str],
-        context: PluginContext | None = None
-    ) -> list[LoadResult]:
-        """加载所有发现的插件
+    async def unload(self, plugin_id: str) -> bool:
+        """卸载插件。
 
         Args:
-            search_paths: 搜索路径列表
-            context: 插件上下文
+            plugin_id: 插件ID。
+
         Returns:
-            加载结果列表
+            是否成功卸载。
         """
-        results = []
-        discovered = self.discover(search_paths)
+        if plugin_id not in self._loaded:
+            return False
 
-        for plugin_dir in discovered:
-            result = self.load_from_dir(str(plugin_dir), context)
-            results.append(result)
-
-        return results
-
-    def _load_plugin(
-        self,
-        plugin_dir: Path,
-        manifest: PluginManifest,
-        context: PluginContext | None
-    ) -> LoadResult:
-        """加载插件内部实现"""
         try:
-            entry_module = plugin_dir / f"{manifest.entry_point}.py"
-            if not entry_module.exists():
-                entry_module = plugin_dir / manifest.entry_point / "__init__.py"
-                if not entry_module.exists():
-                    return LoadResult(
-                        success=False,
-                        plugin_id=manifest.id,
-                        error=f"Entry point not found: {manifest.entry_point}",
-                    )
+            plugin = self._loaded[plugin_id]
+            await plugin.teardown()
 
-            spec = importlib.util.spec_from_file_location(
-                manifest.id,
-                entry_module
-            )
-            if spec is None or spec.loader is None:
-                return LoadResult(
-                    success=False,
-                    plugin_id=manifest.id,
-                    error=f"Failed to create module spec: {manifest.id}",
-                )
+            del self._loaded[plugin_id]
+            del self._contexts[plugin_id]
 
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            plugin = getattr(module, self.ENTRY_POINT_ATTR, None)
-            if plugin is None:
-                return LoadResult(
-                    success=False,
-                    plugin_id=manifest.id,
-                    error=f"Plugin entry point '{self.ENTRY_POINT_ATTR}' not found",
-                )
-
-            if not isinstance(plugin, PluginBase):
-                plugin._metadata = PluginMetadata(
-                    id=manifest.id,
-                    name=manifest.name,
-                    version=manifest.version,
-                    description=manifest.description,
-                    kind=PluginKind(manifest.kind) if manifest.kind in [k.value for k in PluginKind] else PluginKind.TOOL,
-                    dependencies=manifest.dependencies,
-                    provides=manifest.provides,
-                )
-
-            return self._register_plugin(
-                plugin,
-                str(plugin_dir),
-                context
-            )
+            logger.info(f"插件已卸载: {plugin_id}")
+            return True
 
         except Exception as e:
-            self._logger.error(f"Failed to load plugin {manifest.id}: {e}")
-            return LoadResult(
-                success=False,
-                plugin_id=manifest.id,
-                error=str(e),
-            )
+            logger.error(f"卸载插件失败: {plugin_id}, {e}")
+            return False
 
-    def _register_plugin(
-        self,
-        plugin: PluginBase,
-        source: str,
-        context: PluginContext | None
-    ) -> LoadResult:
-        """注册插件"""
-        try:
-            self._registry.register(plugin, source=source)
-            self._loaded_paths[plugin.id] = source
+    def get_plugin(self, plugin_id: str) -> BasePlugin | None:
+        """获取已加载的插件。"""
+        return self._loaded.get(plugin_id)
 
-            if context:
-                import asyncio
-                asyncio.get_event_loop().run_until_complete(plugin.load(context))
+    def get_context(self, plugin_id: str) -> PluginContext | None:
+        """获取插件上下文。"""
+        return self._contexts.get(plugin_id)
 
-            return LoadResult(
-                success=True,
-                plugin_id=plugin.id,
-                plugin=plugin,
-                source=source,
-            )
+    def list_loaded(self) -> list[str]:
+        """列出已加载的插件ID。"""
+        return list(self._loaded.keys())
 
-        except ValueError as e:
-            return LoadResult(
-                success=False,
-                plugin_id=plugin.id,
-                error=str(e),
-            )
-        except Exception as e:
-            return LoadResult(
-                success=False,
-                plugin_id=plugin.id,
-                error=f"Failed to register plugin: {e}",
-            )
-
-    async def activate_all(self) -> dict[str, bool]:
-        """激活所有已加载的插件
-        Returns:
-            插件 ID 到激活状态的映射
-        """
-        results = {}
-        for record in self._registry.list_all():
-            try:
-                await record.plugin.activate()
-                results[record.plugin_id] = True
-            except Exception as e:
-                self._logger.error(f"Failed to activate plugin {record.plugin_id}: {e}")
-                results[record.plugin_id] = False
-        return results
-
-    async def deactivate_all(self) -> dict[str, bool]:
-        """停用所有已激活的插件
-
-        Returns:
-            插件 ID 到停用状态的映射
-        """
-        results = {}
-        for record in self._registry.list_all():
-            try:
-                await record.plugin.deactivate()
-                results[record.plugin_id] = True
-            except Exception as e:
-                self._logger.error(f"Failed to deactivate plugin {record.plugin_id}: {e}")
-                results[record.plugin_id] = False
-        return results
-
-    def get_loaded_paths(self) -> dict[str, str]:
-        """获取已加载插件的路径映射
-
-        Returns:
-            插件 ID 到路径的映射
-        """
-        return dict(self._loaded_paths)
+    def is_loaded(self, plugin_id: str) -> bool:
+        """检查插件是否已加载。"""
+        return plugin_id in self._loaded

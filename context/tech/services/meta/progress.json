@@ -1,125 +1,73 @@
 {
+  "version": "1.0.0",
+  "created_at": "2026-03-28T17:40:00Z",
+  "updated_at": "2026-03-28T17:40:00Z",
+  "status": "completed",
   "services": {
     "gateway": {
       "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
+      "completed_at": "2026-03-28T17:40:00Z",
       "files_analyzed": [
-        "src/tigerclaw/gateway/__init__.py",
-        "src/tigerclaw/gateway/server.py",
-        "src/tigerclaw/gateway/http_server.py",
-        "src/tigerclaw/gateway/websocket_server.py",
-        "src/tigerclaw/gateway/session_manager.py",
-        "src/tigerclaw/gateway/health.py"
+        "server.py",
+        "http.py",
+        "websocket.py",
+        "auth.py",
+        "rate_limit.py"
       ],
       "files_skipped": []
     },
-    "agents": {
+    "agent-runtime": {
       "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
+      "completed_at": "2026-03-28T17:40:00Z",
       "files_analyzed": [
-        "src/tigerclaw/agents/__init__.py",
-        "src/tigerclaw/agents/runtime.py",
-        "src/tigerclaw/agents/tools.py",
-        "src/tigerclaw/agents/context.py"
+        "runner.py",
+        "context.py",
+        "failover.py",
+        "tool_registry.py",
+        "providers/base.py",
+        "providers/openai.py",
+        "providers/anthropic.py",
+        "providers/openrouter.py"
       ],
       "files_skipped": []
     },
-    "providers": {
+    "session-manager": {
       "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
+      "completed_at": "2026-03-28T17:40:00Z",
       "files_analyzed": [
-        "src/tigerclaw/providers/__init__.py",
-        "src/tigerclaw/providers/base.py"
+        "manager.py",
+        "store.py"
       ],
       "files_skipped": []
     },
-    "memory": {
+    "plugin-system": {
       "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
+      "completed_at": "2026-03-28T17:40:00Z",
       "files_analyzed": [
-        "src/tigerclaw/memory/__init__.py",
-        "src/tigerclaw/memory/manager.py"
+        "loader.py",
+        "discovery.py",
+        "registry.py",
+        "lifecycle.py",
+        "types.py"
       ],
       "files_skipped": []
     },
-    "channels": {
+    "cron-scheduler": {
       "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
+      "completed_at": "2026-03-28T17:40:00Z",
       "files_analyzed": [
-        "src/tigerclaw/channels/__init__.py",
-        "src/tigerclaw/channels/base.py"
-      ],
-      "files_skipped": []
-    },
-    "skills": {
-      "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
-      "files_analyzed": [
-        "src/tigerclaw/skills/__init__.py",
-        "src/tigerclaw/skills/base.py"
-      ],
-      "files_skipped": []
-    },
-    "plugins": {
-      "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
-      "files_analyzed": [
-        "src/tigerclaw/plugins/__init__.py",
-        "src/tigerclaw/plugins/base.py"
-      ],
-      "files_skipped": []
-    },
-    "secrets": {
-      "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
-      "files_analyzed": [
-        "src/tigerclaw/secrets/__init__.py",
-        "src/tigerclaw/secrets/manager.py"
-      ],
-      "files_skipped": []
-    },
-    "cron": {
-      "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
-      "files_analyzed": [
-        "src/tigerclaw/cron/__init__.py",
-        "src/tigerclaw/cron/service.py"
-      ],
-      "files_skipped": []
-    },
-    "daemon": {
-      "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
-      "files_analyzed": [
-        "src/tigerclaw/daemon/__init__.py",
-        "src/tigerclaw/daemon/service.py"
-      ],
-      "files_skipped": []
-    },
-    "browser": {
-      "status": "completed",
-      "completed_at": "2026-03-26T15:00:00Z",
-      "files_analyzed": [
-        "src/tigerclaw/browser/__init__.py",
-        "src/tigerclaw/browser/service.py"
+        "scheduler.py",
+        "cron_parser.py",
+        "monitor.py",
+        "task_store.py"
       ],
       "files_skipped": []
     }
   },
-  "config": {
-    "status": "completed",
-    "completed_at": "2026-03-26T15:00:00Z",
-    "files_analyzed": [
-      "src/tigerclaw/config/__init__.py",
-      "src/tigerclaw/config/settings.py"
-    ]
-  },
-  "cli": {
-    "status": "completed",
-    "completed_at": "2026-03-26T15:00:00Z",
-    "files_analyzed": [
-      "src/tigerclaw/cli/__init__.py",
-      "src/tigerclaw/cli/main.py"
-    ]
+  "summary": {
+    "total_services": 5,
+    "completed": 5,
+    "pending": 0,
+    "skipped": 0
   }
 }

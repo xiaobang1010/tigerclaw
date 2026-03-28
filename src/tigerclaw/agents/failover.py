@@ -1,273 +1,235 @@
-"""故障转移模块
+"""故障转移机制。
 
-提供 LLM 调用的故障转移功能，包括：
-- 多认证配置轮换
-- 指数退避重试
-- 模型降级
-- 冷却期管理
+处理 LLM 调用失败时的自动重试和降级策略。
 """
 
-from __future__ import annotations
-
 import asyncio
-import logging
-import random
-import time
-from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
-class FailoverReason(Enum):
-    """故障转移原因"""
+class ErrorType(Enum):
+    """错误类型枚举。"""
+
     RATE_LIMIT = "rate_limit"
     AUTH_ERROR = "auth_error"
+    MODEL_NOT_FOUND = "model_not_found"
+    CONTEXT_TOO_LONG = "context_too_long"
     TIMEOUT = "timeout"
-    MODEL_UNAVAILABLE = "model_unavailable"
-    PROVIDER_ERROR = "provider_error"
+    NETWORK_ERROR = "network_error"
+    SERVER_ERROR = "server_error"
     UNKNOWN = "unknown"
 
 
-@dataclass
-class AuthProfile:
-    """认证配置"""
-    name: str
-    api_key: str | None = None
-    base_url: str | None = None
-    priority: int = 0
-    enabled: bool = True
-    cooldown_until: float = 0
-    failure_count: int = 0
-    last_failure: float = 0
+class FailoverError(Exception):
+    """故障转移错误。"""
+
+    def __init__(
+        self,
+        message: str,
+        error_type: ErrorType,
+        original_error: Exception | None = None,
+        retry_after: int | None = None,
+    ):
+        super().__init__(message)
+        self.error_type = error_type
+        self.original_error = original_error
+        self.retry_after = retry_after
 
 
-@dataclass
-class FailoverConfig:
-    """故障转移配置"""
-    max_retries: int = 3
-    base_delay_ms: float = 1000.0
-    max_delay_ms: float = 60000.0
-    backoff_multiplier: float = 2.0
-    jitter: float = 0.1
-    cooldown_ms: float = 60000.0
-    max_failures_before_cooldown: int = 3
+class FailoverStrategy(Enum):
+    """故障转移策略枚举。"""
+
+    RETRY = "retry"
+    AUTH_ROTATE = "auth_rotate"
+    MODEL_FALLBACK = "model_fallback"
+    PROVIDER_SWITCH = "provider_switch"
+    ABORT = "abort"
 
 
-@dataclass
-class FailoverDecision:
-    """故障转移决策"""
-    should_retry: bool
-    retry_delay_ms: float = 0
-    next_profile: AuthProfile | None = None
-    reason: FailoverReason = FailoverReason.UNKNOWN
-    message: str = ""
+def classify_error(error: Exception) -> ErrorType:
+    """分类错误类型。
+
+    Args:
+        error: 原始错误。
+
+    Returns:
+        错误类型。
+    """
+    error_str = str(error).lower()
+
+    if "rate limit" in error_str or "429" in error_str:
+        return ErrorType.RATE_LIMIT
+    elif "auth" in error_str or "401" in error_str or "403" in error_str:
+        return ErrorType.AUTH_ERROR
+    elif "not found" in error_str or "404" in error_str:
+        return ErrorType.MODEL_NOT_FOUND
+    elif "context" in error_str or "too long" in error_str or "token" in error_str:
+        return ErrorType.CONTEXT_TOO_LONG
+    elif "timeout" in error_str:
+        return ErrorType.TIMEOUT
+    elif "network" in error_str or "connection" in error_str:
+        return ErrorType.NETWORK_ERROR
+    elif "500" in error_str or "502" in error_str or "503" in error_str:
+        return ErrorType.SERVER_ERROR
+    else:
+        return ErrorType.UNKNOWN
 
 
-@dataclass
-class FailoverStats:
-    """故障转移统计"""
-    total_attempts: int = 0
-    successful_attempts: int = 0
-    failed_attempts: int = 0
-    retries: int = 0
-    profile_switches: int = 0
-    last_failure_time: float = 0
+def get_strategy(error_type: ErrorType) -> FailoverStrategy:
+    """获取故障转移策略。
+
+    Args:
+        error_type: 错误类型。
+
+    Returns:
+        故障转移策略。
+    """
+    strategies = {
+        ErrorType.RATE_LIMIT: FailoverStrategy.AUTH_ROTATE,
+        ErrorType.AUTH_ERROR: FailoverStrategy.AUTH_ROTATE,
+        ErrorType.MODEL_NOT_FOUND: FailoverStrategy.MODEL_FALLBACK,
+        ErrorType.CONTEXT_TOO_LONG: FailoverStrategy.ABORT,
+        ErrorType.TIMEOUT: FailoverStrategy.RETRY,
+        ErrorType.NETWORK_ERROR: FailoverStrategy.RETRY,
+        ErrorType.SERVER_ERROR: FailoverStrategy.RETRY,
+        ErrorType.UNKNOWN: FailoverStrategy.RETRY,
+    }
+    return strategies.get(error_type, FailoverStrategy.ABORT)
 
 
-class FailoverManager:
-    """故障转移管理器"""
+class AuthRotator:
+    """认证配置轮换器。"""
 
-    def __init__(self, config: FailoverConfig | None = None):
-        self._config = config or FailoverConfig()
-        self._profiles: list[AuthProfile] = []
-        self._current_profile_index = 0
-        self._stats = FailoverStats()
-        self._on_profile_switch: Callable[[AuthProfile], None] | None = None
+    def __init__(self, auth_profiles: list[dict[str, Any]]) -> None:
+        """初始化轮换器。
 
-    @property
-    def config(self) -> FailoverConfig:
-        return self._config
+        Args:
+            auth_profiles: 认证配置列表。
+        """
+        self.auth_profiles = auth_profiles
+        self._current_index = 0
+        self._failed_indices: set[int] = set()
 
-    @property
-    def stats(self) -> FailoverStats:
-        return self._stats
-
-    def set_profiles(self, profiles: list[AuthProfile]) -> None:
-        self._profiles = sorted(profiles, key=lambda p: p.priority, reverse=True)
-        self._current_profile_index = 0
-
-    def add_profile(self, profile: AuthProfile) -> None:
-        self._profiles.append(profile)
-        self._profiles.sort(key=lambda p: p.priority, reverse=True)
-
-    def get_current_profile(self) -> AuthProfile | None:
-        available = self._get_available_profiles()
-        if not available:
+    def get_current(self) -> dict[str, Any] | None:
+        """获取当前认证配置。"""
+        if not self.auth_profiles:
             return None
-        for profile in available:
-            if profile.name == self._profiles[self._current_profile_index].name:
-                return profile
-        return available[0]
+        return self.auth_profiles[self._current_index]
 
-    def _get_available_profiles(self) -> list[AuthProfile]:
-        now = time.time()
-        return [p for p in self._profiles if p.enabled and p.cooldown_until < now]
+    def rotate(self) -> dict[str, Any] | None:
+        """轮换到下一个可用的认证配置。
 
-    def set_profile_switch_callback(self, callback: Callable[[AuthProfile], None]) -> None:
-        self._on_profile_switch = callback
-
-    def classify_error(self, error: Exception) -> FailoverReason:
-        error_str = str(error).lower()
-        if "rate limit" in error_str or "429" in error_str:
-            return FailoverReason.RATE_LIMIT
-        elif "auth" in error_str or "401" in error_str or "403" in error_str:
-            return FailoverReason.AUTH_ERROR
-        elif "timeout" in error_str:
-            return FailoverReason.TIMEOUT
-        elif "model" in error_str and "unavailable" in error_str:
-            return FailoverReason.MODEL_UNAVAILABLE
-        elif "500" in error_str or "502" in error_str or "503" in error_str:
-            return FailoverReason.PROVIDER_ERROR
-        return FailoverReason.UNKNOWN
-
-    def decide(self, error: Exception, attempt: int) -> FailoverDecision:
-        self._stats.total_attempts += 1
-        self._stats.failed_attempts += 1
-        self._stats.last_failure_time = time.time()
-
-        reason = self.classify_error(error)
-
-        if attempt >= self._config.max_retries:
-            return FailoverDecision(should_retry=False, reason=reason, message="已达到最大重试次数")
-
-        current = self.get_current_profile()
-        if current:
-            current.failure_count += 1
-            current.last_failure = time.time()
-            if current.failure_count >= self._config.max_failures_before_cooldown:
-                current.cooldown_until = time.time() + self._config.cooldown_ms / 1000
-                logger.warning(f"认证配置 {current.name} 进入冷却期")
-
-        available = self._get_available_profiles()
-        if not available:
-            return FailoverDecision(should_retry=False, reason=reason, message="没有可用的认证配置")
-
-        delay_ms = self._calculate_delay(attempt)
-
-        if reason in (FailoverReason.AUTH_ERROR, FailoverReason.RATE_LIMIT):
-            next_profile = self._switch_to_next_profile()
-            if next_profile:
-                self._stats.profile_switches += 1
-                return FailoverDecision(
-                    should_retry=True,
-                    retry_delay_ms=delay_ms,
-                    next_profile=next_profile,
-                    reason=reason,
-                    message=f"切换到认证配置: {next_profile.name}",
-                )
-
-        return FailoverDecision(
-            should_retry=True,
-            retry_delay_ms=delay_ms,
-            next_profile=current,
-            reason=reason,
-            message=f"等待 {delay_ms}ms 后重试",
-        )
-
-    def _calculate_delay(self, attempt: int) -> float:
-        delay = self._config.base_delay_ms * (self._config.backoff_multiplier ** (attempt - 1))
-        delay = min(delay, self._config.max_delay_ms)
-        jitter = delay * self._config.jitter
-        delay += random.uniform(-jitter, jitter)
-        return max(0, delay)
-
-    def _switch_to_next_profile(self) -> AuthProfile | None:
-        available = self._get_available_profiles()
-        if len(available) <= 1:
+        Returns:
+            下一个认证配置，如果没有可用的则返回 None。
+        """
+        if not self.auth_profiles:
             return None
 
-        current = self.get_current_profile()
-        if not current:
-            return available[0]
+        # 标记当前为失败
+        self._failed_indices.add(self._current_index)
 
-        for i, profile in enumerate(available):
-            if profile.name == current.name:
-                next_index = (i + 1) % len(available)
-                next_profile = available[next_index]
-                for j, p in enumerate(self._profiles):
-                    if p.name == next_profile.name:
-                        self._current_profile_index = j
-                        break
-                if self._on_profile_switch:
-                    self._on_profile_switch(next_profile)
-                logger.info(f"切换认证配置: {current.name} -> {next_profile.name}")
-                return next_profile
+        # 查找下一个可用的
+        for _ in range(len(self.auth_profiles)):
+            self._current_index = (self._current_index + 1) % len(self.auth_profiles)
+            if self._current_index not in self._failed_indices:
+                logger.info(f"轮换认证配置: {self.auth_profiles[self._current_index].get('name')}")
+                return self.auth_profiles[self._current_index]
+
+        logger.warning("所有认证配置都已失败")
         return None
 
-    def record_success(self) -> None:
-        self._stats.total_attempts += 1
-        self._stats.successful_attempts += 1
-        current = self.get_current_profile()
-        if current:
-            current.failure_count = 0
+    def reset(self) -> None:
+        """重置失败状态。"""
+        self._failed_indices.clear()
+        logger.debug("认证配置轮换器已重置")
 
-    async def execute_with_retry(
+
+class RetryPolicy:
+    """重试策略。"""
+
+    def __init__(
         self,
-        fn: Callable[[], Any],
-        on_retry: Callable[[int, Exception], None] | None = None,
-    ) -> Any:
-        last_error: Exception | None = None
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+        max_delay: float = 60.0,
+        exponential_base: float = 2.0,
+    ) -> None:
+        """初始化重试策略。
 
-        for attempt in range(1, self._config.max_retries + 1):
-            try:
-                if asyncio.iscoroutinefunction(fn):
-                    result = await fn()
-                else:
-                    result = fn()
-                self.record_success()
-                return result
-            except Exception as e:
-                last_error = e
-                self._stats.retries += 1
-                decision = self.decide(e, attempt)
-                if on_retry:
-                    on_retry(attempt, e)
-                if not decision.should_retry:
-                    break
-                if decision.retry_delay_ms > 0:
-                    await asyncio.sleep(decision.retry_delay_ms / 1000)
+        Args:
+            max_retries: 最大重试次数。
+            base_delay: 基础延迟（秒）。
+            max_delay: 最大延迟（秒）。
+            exponential_base: 指数基数。
+        """
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.exponential_base = exponential_base
 
-        raise last_error or Exception("Unknown error")
+    def get_delay(self, attempt: int) -> float:
+        """计算重试延迟。
 
-    def reset_stats(self) -> None:
-        self._stats = FailoverStats()
+        Args:
+            attempt: 当前尝试次数。
 
-    def reset_profiles(self) -> None:
-        for profile in self._profiles:
-            profile.failure_count = 0
-            profile.cooldown_until = 0
-        self._current_profile_index = 0
+        Returns:
+            延迟时间（秒）。
+        """
+        delay = self.base_delay * (self.exponential_base ** (attempt - 1))
+        return min(delay, self.max_delay)
 
-    def get_status(self) -> dict[str, Any]:
-        current = self.get_current_profile()
-        return {
-            "current_profile": current.name if current else None,
-            "profiles": [
-                {
-                    "name": p.name,
-                    "enabled": p.enabled,
-                    "in_cooldown": p.cooldown_until > time.time(),
-                    "failure_count": p.failure_count,
-                }
-                for p in self._profiles
-            ],
-            "stats": {
-                "total_attempts": self._stats.total_attempts,
-                "successful_attempts": self._stats.successful_attempts,
-                "failed_attempts": self._stats.failed_attempts,
-                "retries": self._stats.retries,
-                "profile_switches": self._stats.profile_switches,
-            },
-        }
+
+async def execute_with_retry(
+    func: Any,
+    *args: Any,
+    retry_policy: RetryPolicy | None = None,
+    **kwargs: Any,
+) -> Any:
+    """带重试的执行函数。
+
+    Args:
+        func: 要执行的异步函数。
+        *args: 位置参数。
+        retry_policy: 重试策略。
+        **kwargs: 关键字参数。
+
+    Returns:
+        函数返回值。
+
+    Raises:
+        FailoverError: 所有重试都失败后抛出。
+    """
+    policy = retry_policy or RetryPolicy()
+    last_error: Exception | None = None
+
+    for attempt in range(1, policy.max_retries + 1):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+            error_type = classify_error(e)
+            strategy = get_strategy(error_type)
+
+            logger.warning(f"执行失败 (尝试 {attempt}/{policy.max_retries}): {error_type.value}")
+
+            if strategy == FailoverStrategy.ABORT:
+                raise FailoverError(
+                    f"不可恢复的错误: {e}",
+                    error_type,
+                    e,
+                ) from e
+
+            if attempt < policy.max_retries:
+                delay = policy.get_delay(attempt)
+                logger.info(f"等待 {delay:.1f} 秒后重试...")
+                await asyncio.sleep(delay)
+
+    raise FailoverError(
+        f"所有重试都失败: {last_error}",
+        ErrorType.UNKNOWN,
+        last_error,
+    ) from last_error
