@@ -24,6 +24,16 @@ from core.types.config import (
     TigerClawConfig,
     TokenConfig,
 )
+from core.types.delivery import (
+    DeliveryContextSessionSource,
+    SessionOrigin,
+    SessionWithOrigin,
+    delivery_context_from_session,
+    delivery_context_key,
+    merge_delivery_context,
+    normalize_delivery_context,
+    normalize_delivery_fields,
+)
 from core.types.messages import (
     AudioContent,
     ChatRequest,
@@ -38,6 +48,7 @@ from core.types.messages import (
     ToolUseContent,
 )
 from core.types.sessions import (
+    DeliveryContext,
     Session,
     SessionConfig,
     SessionCreateParams,
@@ -85,6 +96,16 @@ __all__ = [
     "SessionCreateParams",
     "SessionListParams",
     "SessionListResult",
+    "DeliveryContext",
+    # 交付上下文类型
+    "DeliveryContextSessionSource",
+    "SessionOrigin",
+    "SessionWithOrigin",
+    "normalize_delivery_context",
+    "merge_delivery_context",
+    "normalize_delivery_fields",
+    "delivery_context_from_session",
+    "delivery_context_key",
     # 工具类型
     "ToolType",
     "JsonSchemaType",

@@ -9,12 +9,15 @@ from typing import Any
 
 from loguru import logger
 
+from core.types.delivery import merge_delivery_context
 from core.types.sessions import (
+    DeliveryContext,
     Session,
     SessionConfig,
     SessionKey,
     SessionState,
 )
+from sessions.merge import merge_session_entry
 from sessions.store import SessionStore
 
 
@@ -173,6 +176,55 @@ class SessionManager:
         await self.store.save(session)
         return session
 
+    async def update_stats(
+        self,
+        key: SessionKey | str,
+        stats: dict[str, int],
+    ) -> Session:
+        """更新会话的统计信息（累加而非覆盖）。
+
+        Args:
+            key: 会话键。
+            stats: 统计信息字典，支持 total_tokens、input_tokens、output_tokens。
+
+        Returns:
+            更新后的会话。
+        """
+        session = await self.get(key)
+        if not session:
+            raise ValueError(f"会话不存在: {key}")
+
+        total_tokens = stats.get("total_tokens", 0)
+        input_tokens = stats.get("input_tokens", 0)
+        output_tokens = stats.get("output_tokens", 0)
+
+        session.meta.total_tokens += total_tokens
+        session.meta.input_tokens += input_tokens
+        session.meta.output_tokens += output_tokens
+        session.meta.updated_at = datetime.now()
+
+        await self.store.save(session)
+        return session
+
+    async def touch(self, key: SessionKey | str) -> Session:
+        """更新会话的访问时间。
+
+        Args:
+            key: 会话键。
+
+        Returns:
+            更新后的会话。
+        """
+        session = await self.get(key)
+        if not session:
+            raise ValueError(f"会话不存在: {key}")
+
+        session.meta.updated_at = datetime.now()
+        session.updated_at_ms = int(datetime.now().timestamp() * 1000)
+
+        await self.store.save(session)
+        return session
+
     async def list(
         self,
         agent_id: str | None = None,
@@ -219,3 +271,124 @@ class SessionManager:
             logger.info(f"会话删除: {key}")
 
         return result
+
+    async def update_entry(
+        self,
+        key: SessionKey | str,
+        update: dict[str, Any],
+    ) -> Session:
+        """部分更新会话条目。
+
+        使用 merge_session_entry 合并更新。
+
+        Args:
+            key: 会话键。
+            update: 更新字典。
+
+        Returns:
+            更新后的会话。
+
+        Raises:
+            ValueError: 会话不存在。
+        """
+        session = await self.get(key)
+        if not session:
+            raise ValueError(f"会话不存在: {key}")
+
+        merged = merge_session_entry(session, update)
+
+        await self.store.save(merged)
+
+        key_str = str(key)
+        self._active_sessions[key_str] = merged
+
+        return merged
+
+    async def get_active_sessions(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Session]:
+        """获取所有活跃会话。
+
+        活跃会话指 state 为 ACTIVE 或 PROCESSING 的会话。
+
+        Args:
+            limit: 返回数量限制。
+            offset: 偏移量。
+
+        Returns:
+            活跃会话列表。
+        """
+        active_sessions = await self.store.list(
+            state=SessionState.ACTIVE,
+            limit=limit,
+            offset=offset,
+        )
+
+        processing_sessions = await self.store.list(
+            state=SessionState.PROCESSING,
+            limit=limit,
+            offset=offset,
+        )
+
+        seen_keys: set[str] = set()
+        result: list[Session] = []
+
+        for session in active_sessions:
+            key_str = str(session.key)
+            if key_str not in seen_keys:
+                seen_keys.add(key_str)
+                result.append(session)
+
+        for session in processing_sessions:
+            key_str = str(session.key)
+            if key_str not in seen_keys:
+                seen_keys.add(key_str)
+                result.append(session)
+
+        return result[:limit]
+
+    async def update_delivery_context(
+        self,
+        key: SessionKey | str,
+        delivery_context: DeliveryContext,
+    ) -> Session:
+        """更新会话的交付上下文。
+
+        使用 merge_delivery_context 合并现有上下文和新上下文。
+
+        Args:
+            key: 会话键。
+            delivery_context: 新的交付上下文。
+
+        Returns:
+            更新后的会话。
+
+        Raises:
+            ValueError: 会话不存在。
+        """
+        session = await self.get(key)
+        if not session:
+            raise ValueError(f"会话不存在: {key}")
+
+        merged_context = merge_delivery_context(
+            delivery_context,
+            session.delivery_context,
+        )
+
+        session.delivery_context = merged_context
+        session.meta.updated_at = datetime.now()
+
+        if merged_context:
+            session.last_channel = merged_context.channel
+            session.last_to = merged_context.to
+            session.last_account_id = merged_context.account_id
+            session.last_thread_id = merged_context.thread_id
+
+        await self.store.save(session)
+
+        key_str = str(key)
+        self._active_sessions[key_str] = session
+
+        return session
