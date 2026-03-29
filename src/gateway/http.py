@@ -20,6 +20,10 @@ from gateway.auth import (
     authorize_http_gateway_connect,
     resolve_gateway_auth,
 )
+from gateway.methods.channels import (
+    AddChannelAccountRequest,
+    EnableChannelAccountRequest,
+)
 from gateway.rate_limit import AuthRateLimiter, RateLimitConfig, create_auth_rate_limiter
 
 router = APIRouter()
@@ -220,3 +224,115 @@ async def auth_status(user: dict[str, Any] | None = Depends(get_current_user)):
             "user": user.get("user"),
         }
     return {"authenticated": False}
+
+
+@router.get("/channels")
+async def list_channels(
+    request: Request,
+    user: dict[str, Any] | None = Depends(get_current_user),
+):
+    """列出所有渠道。
+
+    可选认证。
+    """
+    from gateway.methods.channels import handle_channels_list
+
+    config = getattr(request.app.state, "config", None)
+    result = await handle_channels_list({}, user or {}, config)
+    return result
+
+
+@router.get("/channels/{channel_id}/status")
+async def get_channel_status(
+    request: Request,
+    channel_id: str,
+    account_id: str | None = None,
+    user: dict[str, Any] | None = Depends(get_current_user),
+):
+    """获取渠道状态。
+
+    可选认证。
+    """
+    from gateway.methods.channels import handle_channels_status
+
+    config = getattr(request.app.state, "config", None)
+    params = {"channel_id": channel_id}
+    if account_id:
+        params["account_id"] = account_id
+    result = await handle_channels_status(params, user or {}, config)
+    return result
+
+
+@router.post("/channels/{channel_id}/accounts")
+async def add_channel_account(
+    request: Request,
+    channel_id: str,
+    account_request: AddChannelAccountRequest,
+    user: dict[str, Any] = Depends(require_auth),
+):
+    """添加渠道账户。
+
+    需要认证。
+    """
+    from gateway.methods.channels import handle_channels_add_account
+
+    config = getattr(request.app.state, "config", None)
+    params = {
+        "channel_id": channel_id,
+        "account_config": {
+            "account_id": account_request.account_id,
+            "name": account_request.name,
+            **account_request.config,
+        },
+    }
+    result = await handle_channels_add_account(params, user, config)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@router.delete("/channels/{channel_id}/accounts/{account_id}")
+async def remove_channel_account(
+    request: Request,
+    channel_id: str,
+    account_id: str,
+    user: dict[str, Any] = Depends(require_auth),
+):
+    """移除渠道账户。
+
+    需要认证。
+    """
+    from gateway.methods.channels import handle_channels_remove_account
+
+    config = getattr(request.app.state, "config", None)
+    params = {"channel_id": channel_id, "account_id": account_id}
+    result = await handle_channels_remove_account(params, user, config)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@router.patch("/channels/{channel_id}/accounts/{account_id}")
+async def update_channel_account(
+    request: Request,
+    channel_id: str,
+    account_id: str,
+    enable_request: EnableChannelAccountRequest,
+    user: dict[str, Any] = Depends(require_auth),
+):
+    """更新渠道账户（启用/禁用）。
+
+    需要认证。
+    """
+    from gateway.methods.channels import handle_channels_enable_account
+
+    config = getattr(request.app.state, "config", None)
+    params = {
+        "channel_id": channel_id,
+        "account_id": account_id,
+        "enabled": enable_request.enabled,
+    }
+    result = await handle_channels_enable_account(params, user, config)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result

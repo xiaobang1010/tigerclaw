@@ -1,0 +1,101 @@
+"""
+渠道类型模块。
+
+提供渠道系统的核心类型定义，包括：
+- 核心类型：ChannelId、ChatType、ChannelMeta、ChannelCapabilities 等
+- 适配器协议：ChannelConfigAdapter、ChannelSecurityAdapter 等
+- 插件契约：ChannelPlugin、ChannelPluginInfo 等
+- 出站类型：OutboundDeliveryResult、OutboundContext、ChannelPollResult 等
+"""
+
+from .adapters import (
+    ChannelAllowlistAdapter,
+    ChannelAuthAdapter,
+    ChannelCommandAdapter,
+    ChannelConfigAdapter,
+    ChannelDirectoryAdapter,
+    ChannelExecApprovalAdapter,
+    ChannelGatewayAdapter,
+    ChannelGroupAdapter,
+    ChannelHeartbeatAdapter,
+    ChannelLifecycleAdapter,
+    ChannelMentionAdapter,
+    ChannelMessageActionAdapter,
+    ChannelMessagingAdapter,
+    ChannelOutboundAdapter,
+    ChannelPairingAdapter,
+    ChannelResolverAdapter,
+    ChannelSecurityAdapter,
+    ChannelSetupAdapter,
+    ChannelStatusAdapter,
+    ChannelStreamingAdapter,
+    ChannelThreadingAdapter,
+)
+from .core import (
+    BaseProbeResult,
+    BaseTokenResolution,
+    ChannelAccountSnapshot,
+    ChannelAccountState,
+    ChannelCapabilities,
+    ChannelDirectoryEntry,
+    ChannelDirectoryEntryKind,
+    ChannelId,
+    ChannelLogSink,
+    ChannelMeta,
+    ChannelSetupInput,
+    ChannelStatusIssue,
+    ChatType,
+)
+from .plugin import (
+    ChannelConfigSchema,
+    ChannelConfigUiHint,
+    ChannelPlugin,
+    ChannelPluginDefaults,
+    ChannelPluginInfo,
+    ChannelPluginRegistry,
+    ChannelPluginReload,
+)
+
+__all__ = [
+    "BaseProbeResult",
+    "BaseTokenResolution",
+    "ChannelAccountSnapshot",
+    "ChannelAccountState",
+    "ChannelAllowlistAdapter",
+    "ChannelAuthAdapter",
+    "ChannelCapabilities",
+    "ChannelCommandAdapter",
+    "ChannelConfigAdapter",
+    "ChannelConfigSchema",
+    "ChannelConfigUiHint",
+    "ChannelDirectoryAdapter",
+    "ChannelDirectoryEntry",
+    "ChannelDirectoryEntryKind",
+    "ChannelExecApprovalAdapter",
+    "ChannelGatewayAdapter",
+    "ChannelGroupAdapter",
+    "ChannelHeartbeatAdapter",
+    "ChannelId",
+    "ChannelLifecycleAdapter",
+    "ChannelLogSink",
+    "ChannelMentionAdapter",
+    "ChannelMessageActionAdapter",
+    "ChannelMessagingAdapter",
+    "ChannelMeta",
+    "ChannelOutboundAdapter",
+    "ChannelPairingAdapter",
+    "ChannelPlugin",
+    "ChannelPluginDefaults",
+    "ChannelPluginInfo",
+    "ChannelPluginRegistry",
+    "ChannelPluginReload",
+    "ChannelResolverAdapter",
+    "ChannelSecurityAdapter",
+    "ChannelSetupAdapter",
+    "ChannelSetupInput",
+    "ChannelStatusAdapter",
+    "ChannelStatusIssue",
+    "ChannelStreamingAdapter",
+    "ChannelThreadingAdapter",
+    "ChatType",
+]

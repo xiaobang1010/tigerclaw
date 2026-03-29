@@ -276,39 +276,204 @@ class ChannelConfig(BaseModel):
     name: str | None = Field(None, description="渠道名称")
 
 
-class FeishuChannelConfig(ChannelConfig):
-    """飞书渠道配置。"""
+class ChannelAccountConfig(BaseModel):
+    """渠道账户配置基类。
+
+    用于多账户场景下的单个账户配置，支持继承顶层渠道配置的默认值。
+
+    Attributes:
+        enabled: 是否启用此账户
+        name: 账户显示名称（用于 CLI/UI 列表）
+        allow_from: 允许访问的用户列表（ID 或名称）
+        dm_policy: 私信策略（open/pairing/allowlist/disabled）
+        group_policy: 群组策略（open/allowlist/disabled）
+    """
+
+    enabled: bool = Field(default=True, description="是否启用此账户")
+    name: str | None = Field(None, description="账户显示名称")
+    allow_from: list[str] | None = Field(None, description="允许访问的用户列表")
+    dm_policy: str | None = Field(None, description="私信策略")
+    group_policy: str | None = Field(None, description="群组策略")
+
+
+class FeishuAccountConfig(ChannelAccountConfig):
+    """飞书账户配置。
+
+    继承基础账户配置，添加飞书特定的认证字段。
+
+    Attributes:
+        app_id: 飞书应用 ID
+        app_secret: 飞书应用密钥
+        verification_token: 验证 Token（Webhook 模式必需）
+        encrypt_key: 加密密钥（Webhook 模式必需）
+        domain: 飞书域名（feishu/lark 或自定义 URL）
+        connection_mode: 连接模式（websocket/webhook）
+    """
 
     app_id: str | None = Field(None, description="应用ID")
     app_secret: str | None = Field(None, description="应用密钥")
     verification_token: str | None = Field(None, description="验证Token")
     encrypt_key: str | None = Field(None, description="加密密钥")
+    domain: str | None = Field(None, description="飞书域名")
+    connection_mode: str | None = Field(None, description="连接模式")
 
 
-class SlackChannelConfig(ChannelConfig):
-    """Slack 渠道配置。"""
+class SlackAccountConfig(ChannelAccountConfig):
+    """Slack 账户配置。
+
+    继承基础账户配置，添加 Slack 特定的认证字段。
+
+    Attributes:
+        bot_token: Slack Bot Token
+        app_token: Slack App Token（Socket Mode 必需）
+        signing_secret: 签名密钥（HTTP 模式必需）
+        mode: 连接模式（socket/http）
+    """
 
     bot_token: str | None = Field(None, description="Bot Token")
     app_token: str | None = Field(None, description="App Token")
     signing_secret: str | None = Field(None, description="签名密钥")
+    mode: str | None = Field(None, description="连接模式")
 
 
-class DiscordChannelConfig(ChannelConfig):
-    """Discord 渠道配置。"""
+class DiscordAccountConfig(ChannelAccountConfig):
+    """Discord 账户配置。
+
+    继承基础账户配置，添加 Discord 特定的认证字段。
+
+    Attributes:
+        bot_token: Discord Bot Token
+        application_id: Discord 应用 ID
+    """
 
     bot_token: str | None = Field(None, description="Bot Token")
     application_id: str | None = Field(None, description="应用ID")
 
 
-class TelegramChannelConfig(ChannelConfig):
-    """Telegram 渠道配置。"""
+class TelegramAccountConfig(ChannelAccountConfig):
+    """Telegram 账户配置。
+
+    继承基础账户配置，添加 Telegram 特定的认证字段。
+
+    Attributes:
+        bot_token: Telegram Bot Token
+    """
 
     bot_token: str | None = Field(None, description="Bot Token")
 
 
-class ChannelsConfig(BaseModel):
-    """渠道配置集合。"""
+class FeishuChannelConfig(ChannelConfig):
+    """飞书渠道配置。
 
+    支持单账户和多账户两种配置模式：
+    - 单账户：直接使用顶层字段（app_id, app_secret 等）
+    - 多账户：使用 accounts 字典配置多个账户
+
+    Attributes:
+        app_id: 应用 ID（单账户模式）
+        app_secret: 应用密钥（单账户模式）
+        verification_token: 验证 Token
+        encrypt_key: 加密密钥
+        domain: 飞书域名
+        connection_mode: 连接模式
+        default_account: 默认账户 ID（多账户模式）
+        accounts: 多账户配置字典
+    """
+
+    app_id: str | None = Field(None, description="应用ID")
+    app_secret: str | None = Field(None, description="应用密钥")
+    verification_token: str | None = Field(None, description="验证Token")
+    encrypt_key: str | None = Field(None, description="加密密钥")
+    domain: str | None = Field(default="feishu", description="飞书域名")
+    connection_mode: str | None = Field(default="websocket", description="连接模式")
+    default_account: str | None = Field(None, description="默认账户ID")
+    accounts: dict[str, FeishuAccountConfig] = Field(
+        default_factory=dict, description="多账户配置"
+    )
+
+
+class SlackChannelConfig(ChannelConfig):
+    """Slack 渠道配置。
+
+    支持单账户和多账户两种配置模式。
+
+    Attributes:
+        bot_token: Bot Token（单账户模式）
+        app_token: App Token（单账户模式）
+        signing_secret: 签名密钥
+        mode: 连接模式
+        default_account: 默认账户 ID（多账户模式）
+        accounts: 多账户配置字典
+    """
+
+    bot_token: str | None = Field(None, description="Bot Token")
+    app_token: str | None = Field(None, description="App Token")
+    signing_secret: str | None = Field(None, description="签名密钥")
+    mode: str | None = Field(default="socket", description="连接模式")
+    default_account: str | None = Field(None, description="默认账户ID")
+    accounts: dict[str, SlackAccountConfig] = Field(
+        default_factory=dict, description="多账户配置"
+    )
+
+
+class DiscordChannelConfig(ChannelConfig):
+    """Discord 渠道配置。
+
+    支持单账户和多账户两种配置模式。
+
+    Attributes:
+        bot_token: Bot Token（单账户模式）
+        application_id: 应用 ID
+        default_account: 默认账户 ID（多账户模式）
+        accounts: 多账户配置字典
+    """
+
+    bot_token: str | None = Field(None, description="Bot Token")
+    application_id: str | None = Field(None, description="应用ID")
+    default_account: str | None = Field(None, description="默认账户ID")
+    accounts: dict[str, DiscordAccountConfig] = Field(
+        default_factory=dict, description="多账户配置"
+    )
+
+
+class TelegramChannelConfig(ChannelConfig):
+    """Telegram 渠道配置。
+
+    支持单账户和多账户两种配置模式。
+
+    Attributes:
+        bot_token: Bot Token（单账户模式）
+        default_account: 默认账户 ID（多账户模式）
+        accounts: 多账户配置字典
+    """
+
+    bot_token: str | None = Field(None, description="Bot Token")
+    default_account: str | None = Field(None, description="默认账户ID")
+    accounts: dict[str, TelegramAccountConfig] = Field(
+        default_factory=dict, description="多账户配置"
+    )
+
+
+class ChannelDefaultsConfig(BaseModel):
+    """渠道默认配置。"""
+
+    group_policy: str | None = Field(None, description="默认群组策略")
+
+
+class ChannelsConfig(BaseModel):
+    """渠道配置集合。
+
+    支持内置渠道和扩展渠道的动态注册。
+
+    Attributes:
+        defaults: 渠道默认配置
+        feishu: 飞书配置
+        slack: Slack 配置
+        discord: Discord 配置
+        telegram: Telegram 配置
+    """
+
+    defaults: ChannelDefaultsConfig | None = Field(None, description="渠道默认配置")
     feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig, description="飞书配置")
     slack: SlackChannelConfig = Field(default_factory=SlackChannelConfig, description="Slack配置")
     discord: DiscordChannelConfig = Field(
@@ -317,6 +482,8 @@ class ChannelsConfig(BaseModel):
     telegram: TelegramChannelConfig = Field(
         default_factory=TelegramChannelConfig, description="Telegram配置"
     )
+
+    model_config = {"extra": "allow"}
 
 
 class AgentConfig(BaseModel):
