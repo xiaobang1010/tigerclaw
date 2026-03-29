@@ -226,14 +226,39 @@ class AuthProfile(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict, description="额外请求头")
 
 
+class AuthProfileConfig(BaseModel):
+    """认证配置档案。
+
+    定义 Provider 认证的完整配置，支持多种认证类型。
+
+    Attributes:
+        id: 配置档案唯一标识符
+        provider: 关联的 Provider 名称
+        type: 认证类型（api_key/oauth/token）
+        credential: 认证凭据信息
+        name: 配置档案显示名称（可选）
+        priority: 优先级，数值越大优先级越高
+    """
+
+    id: str = Field(..., description="配置档案唯一标识符")
+    provider: str = Field(..., description="关联的 Provider 名称")
+    type: str = Field(..., description="认证类型（api_key/oauth/token）")
+    credential: dict[str, Any] = Field(default_factory=dict, description="认证凭据信息")
+    name: str | None = Field(None, description="配置档案显示名称")
+    priority: int = Field(default=0, description="优先级")
+
+
 class ModelConfig(BaseModel):
     """模型配置。"""
 
     id: str = Field(..., description="模型ID")
     provider: ModelProvider = Field(..., description="提供商")
     name: str | None = Field(None, description="显示名称")
+    alias: str | None = Field(None, description="模型别名")
+    fallbacks: list[str] = Field(default_factory=list, description="降级模型列表")
     auth_profiles: list[AuthProfile] = Field(default_factory=list, description="认证配置列表")
-    context_window: int = Field(default=4096, description="上下文窗口大小")
+    context_window: int | None = Field(None, description="上下文窗口大小")
+    capabilities: dict[str, bool] = Field(default_factory=dict, description="能力声明")
     supports_vision: bool = Field(default=False, description="是否支持视觉")
     supports_tools: bool = Field(default=True, description="是否支持工具调用")
     supports_streaming: bool = Field(default=True, description="是否支持流式输出")
@@ -334,3 +359,57 @@ class TigerClawConfig(BaseModel):
     custom: dict[str, Any] = Field(default_factory=dict, description="自定义配置")
 
     model_config = {"use_enum_values": True}
+
+
+def resolve_model_fallbacks(cfg: AgentsConfig, model: str) -> list[str]:
+    """解析模型的降级列表。
+
+    根据配置查找指定模型的降级模型列表，用于故障转移场景。
+
+    Args:
+        cfg: Agents 配置对象
+        model: 模型标识符或别名
+
+    Returns:
+        降级模型列表，包含原始模型作为第一个元素
+    """
+    result = [model]
+
+    if not cfg.defaults:
+        return result
+
+    models_map = cfg.defaults.models
+    if not models_map:
+        return result
+
+    model_cfg = models_map.get(model)
+    if model_cfg and model_cfg.fallbacks:
+        result.extend(model_cfg.fallbacks)
+
+    return result
+
+
+def resolve_model_alias(cfg: AgentsConfig, alias: str) -> str | None:
+    """解析模型别名为实际模型标识符。
+
+    根据配置查找别名对应的实际模型 ID。
+
+    Args:
+        cfg: Agents 配置对象
+        alias: 模型别名
+
+    Returns:
+        实际模型标识符，如果别名不存在则返回 None
+    """
+    if not cfg.defaults:
+        return None
+
+    models_map = cfg.defaults.models
+    if not models_map:
+        return None
+
+    for model_id, model_cfg in models_map.items():
+        if model_cfg.alias == alias:
+            return model_id
+
+    return None
