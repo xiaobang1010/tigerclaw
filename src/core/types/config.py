@@ -48,6 +48,24 @@ class GatewayAuthMode(StrEnum):
     TRUSTED_PROXY = "trusted-proxy"
 
 
+class ReloadMode(StrEnum):
+    """重载模式枚举。
+
+    定义 Gateway 配置变更后的重载策略。
+
+    Attributes:
+        OFF: 禁用热重载，需要手动重启
+        HOT: 热重载，无需重启服务
+        RESTART: 自动重启服务
+        HYBRID: 混合模式，根据变更类型自动选择
+    """
+
+    OFF = "off"
+    HOT = "hot"
+    RESTART = "restart"
+    HYBRID = "hybrid"
+
+
 class TokenConfig(BaseModel):
     """Token 配置。"""
 
@@ -65,7 +83,16 @@ class TrustedProxyConfig(BaseModel):
 
 
 class RateLimitConfig(BaseModel):
-    """速率限制配置。"""
+    """速率限制配置。
+
+    用于控制认证失败后的锁定策略，防止暴力破解攻击。
+
+    Attributes:
+        max_attempts: 在滑动窗口内允许的最大失败尝试次数
+        window_ms: 滑动窗口时间（毫秒），用于计算失败次数
+        lockout_ms: 达到最大失败次数后的锁定时间（毫秒）
+        exempt_loopback: 是否豁免回环地址（localhost）的速率限制
+    """
 
     max_attempts: int = Field(default=10, description="最大尝试次数")
     window_ms: int = Field(default=60000, description="滑动窗口时间（毫秒）")
@@ -74,7 +101,21 @@ class RateLimitConfig(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    """认证配置。"""
+    """认证配置。
+
+    定义 Gateway 的认证方式和相关参数，支持多种认证模式。
+
+    Attributes:
+        mode: 认证模式（none/token/password/trusted-proxy）
+        token: 认证 Token（mode 为 token 时使用）
+        password: 认证密码（mode 为 password 时使用）
+        tokens: Token 列表，支持多个 Token 配置
+        pairing_enabled: 是否启用配对码认证
+        pairing_timeout_ms: 配对码超时时间（毫秒）
+        allow_tailscale: 是否允许 Tailscale 网络认证
+        trusted_proxy: 受信任代理配置（mode 为 trusted-proxy 时使用）
+        rate_limit: 速率限制配置，防止暴力破解
+    """
 
     mode: GatewayAuthMode = Field(default=GatewayAuthMode.TOKEN, description="认证模式")
     token: str | None = Field(None, description="认证Token")
@@ -89,17 +130,73 @@ class AuthConfig(BaseModel):
     model_config = {"use_enum_values": True}
 
 
+class GatewayTlsConfig(BaseModel):
+    """Gateway TLS 配置。
+
+    定义 Gateway 的 TLS/HTTPS 安全传输配置。
+
+    Attributes:
+        enabled: 是否启用 TLS（HTTPS）
+        auto_generate: 证书缺失时是否自动生成自签名证书
+        cert_path: PEM 格式证书文件路径
+        key_path: PEM 格式私钥文件路径
+        ca_path: 可选的 CA 证书路径（用于 mTLS 或自定义根证书）
+    """
+
+    enabled: bool = Field(default=False, description="是否启用 TLS")
+    auto_generate: bool = Field(default=True, description="证书缺失时是否自动生成自签名证书")
+    cert_path: str | None = Field(None, description="PEM 证书文件路径")
+    key_path: str | None = Field(None, description="PEM 私钥文件路径")
+    ca_path: str | None = Field(None, description="可选的 CA 证书路径（用于 mTLS 或自定义根证书）")
+
+
+class GatewayReloadConfig(BaseModel):
+    """Gateway 重载配置。
+
+    定义配置变更后的重载策略，支持多种重载模式。
+
+    Attributes:
+        mode: 重载模式（off/hot/restart/hybrid）
+            - off: 禁用热重载，需要手动重启
+            - hot: 热重载，无需重启服务
+            - restart: 自动重启服务
+            - hybrid: 混合模式，根据变更类型自动选择
+    """
+
+    mode: ReloadMode = Field(default=ReloadMode.OFF, description="重载模式")
+
+    model_config = {"use_enum_values": True}
+
+
 class GatewayConfig(BaseModel):
-    """Gateway 配置。"""
+    """Gateway 配置。
+
+    定义 TigerClaw Gateway 的核心配置参数，包括网络绑定、认证、TLS 等。
+
+    Attributes:
+        port: 监听端口号（1-65535），默认 18789
+        bind: 绑定模式（loopback/lan/tailnet/auto）
+        host: 自定义绑定地址（可选，通常由 bind 模式决定）
+        cors_origins: CORS 允许的源列表，默认 ["*"]
+        tls: TLS/HTTPS 配置
+        auth: 认证配置
+        reload: 配置重载策略
+        trusted_proxies: 受信任的代理地址列表
+        control_ui_enabled: 是否启用控制 UI
+        openai_chat_completions_enabled: 是否启用 OpenAI 兼容 API
+        allow_real_ip_fallback: 是否允许 X-Real-IP 后备
+    """
 
     bind: BindMode = Field(default=BindMode.LOOPBACK, description="绑定模式")
     host: str | None = Field(None, description="绑定地址")
     port: int = Field(default=18789, ge=1, le=65535, description="端口号")
+    cors_origins: list[str] = Field(default_factory=lambda: ["*"], description="CORS允许的源")
+    tls: GatewayTlsConfig = Field(default_factory=GatewayTlsConfig, description="TLS 配置")
     auth: AuthConfig = Field(default_factory=AuthConfig, description="认证配置")
+    reload: GatewayReloadConfig = Field(default_factory=GatewayReloadConfig, description="重载配置")
     trusted_proxies: list[str] = Field(default_factory=list, description="受信任的代理地址列表")
     control_ui_enabled: bool = Field(default=True, description="是否启用控制UI")
     openai_chat_completions_enabled: bool = Field(default=True, description="是否启用OpenAI兼容API")
-    cors_origins: list[str] = Field(default_factory=lambda: ["*"], description="CORS允许的源")
     allow_real_ip_fallback: bool = Field(default=False, description="是否允许X-Real-IP后备")
 
     model_config = {"use_enum_values": True}

@@ -3,8 +3,10 @@
 处理 WebSocket 连接和消息。
 """
 
+import asyncio
 import json
 import os
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -21,6 +23,7 @@ from gateway.auth import (
     authorize_ws_control_ui_gateway_connect,
     resolve_gateway_auth,
 )
+from gateway.connection_pool import connection_pool
 from gateway.methods.chat import handle_chat
 from gateway.methods.config import (
     handle_config_get,
@@ -41,49 +44,8 @@ from gateway.methods.tools import (
     handle_tools_list,
 )
 from gateway.rate_limit import AuthRateLimiter, RateLimitConfig, create_auth_rate_limiter
+from gateway.rpc_config import DEFAULT_RPC_CONFIG, RpcConfig
 from sessions.manager import SessionManager
-
-
-class ConnectionManager:
-    """WebSocket 连接管理器。"""
-
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-        self.connection_users: dict[WebSocket, dict[str, Any]] = {}
-
-    async def connect(
-        self, websocket: WebSocket, user_info: dict[str, Any] | None = None
-    ) -> None:
-        """接受新连接。"""
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        if user_info:
-            self.connection_users[websocket] = user_info
-        logger.info(f"WebSocket 连接建立，当前连接数: {len(self.active_connections)}")
-
-    def disconnect(self, websocket: WebSocket) -> None:
-        """断开连接。"""
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-        if websocket in self.connection_users:
-            del self.connection_users[websocket]
-        logger.info(f"WebSocket 连接断开，当前连接数: {len(self.active_connections)}")
-
-    async def send_json(self, websocket: WebSocket, data: dict[str, Any]) -> None:
-        """发送 JSON 消息。"""
-        await websocket.send_json(data)
-
-    async def broadcast(self, data: dict[str, Any]) -> None:
-        """广播消息到所有连接。"""
-        for connection in self.active_connections:
-            await connection.send_json(data)
-
-    def get_user(self, websocket: WebSocket) -> dict[str, Any] | None:
-        """获取连接的用户信息。"""
-        return self.connection_users.get(websocket)
-
-
-manager = ConnectionManager()
 
 
 def get_resolved_auth(request: Request | None) -> ResolvedGatewayAuth:
@@ -203,6 +165,7 @@ class RPCHandler:
         providers: dict[str, LLMProvider] | None = None,
         config: Any = None,
         config_path: str | None = None,
+        rpc_config: RpcConfig | None = None,
     ):
         """初始化 RPC 处理器。
 
@@ -212,18 +175,22 @@ class RPCHandler:
             providers: LLM 提供商字典。
             config: 当前配置。
             config_path: 配置文件路径。
+            rpc_config: RPC 配置。
         """
         self.session_manager = session_manager or SessionManager()
         self.tool_registry = tool_registry or ToolRegistry()
         self.providers = providers or {}
         self.config = config
         self.config_path = config_path
+        self.rpc_config = rpc_config or DEFAULT_RPC_CONFIG
+        self._semaphore = asyncio.Semaphore(self.rpc_config.max_concurrent)
 
     async def handle(
         self,
         websocket: WebSocket,
         message: dict[str, Any],
         user_info: dict[str, Any],
+        raw_data: str | None = None,
     ) -> dict[str, Any]:
         """处理 RPC 消息。
 
@@ -231,16 +198,29 @@ class RPCHandler:
             websocket: WebSocket 连接。
             message: RPC 消息。
             user_info: 用户信息。
+            raw_data: 原始消息数据，用于大小检查。
 
         Returns:
             响应消息。
         """
-        method = message.get("method")
-        params = message.get("params", {})
         msg_id = message.get("id")
 
+        # 检查请求大小
+        if raw_data and len(raw_data) > self.rpc_config.max_request_size:
+            return {"id": msg_id, "error": {"code": -32003, "message": "Request too large"}}
+
+        method = message.get("method")
+
+        # 检查方法是否在白名单中
+        if method not in self.rpc_config.allowed_methods:
+            return {"id": msg_id, "error": {"code": -32601, "message": "Method not allowed"}}
+
+        params = message.get("params", {})
+
         async def send_callback(data: dict[str, Any]) -> None:
-            await manager.send_json(websocket, {"id": msg_id, **data})
+            conn_info = connection_pool.get_by_ws(websocket)
+            if conn_info:
+                await connection_pool.send_to(conn_info.id, {"id": msg_id, **data})
 
         handlers: dict[str, Callable] = {
             "connect": self._handle_connect,
@@ -261,15 +241,27 @@ class RPCHandler:
         }
 
         handler = handlers.get(method)
-        if handler:
+        if not handler:
+            return {"id": msg_id, "error": {"code": -32601, "message": "Method not allowed"}}
+
+        # 检查并发限制
+        if self._semaphore.locked():
+            return {"id": msg_id, "error": {"code": -32002, "message": "Too many concurrent requests"}}
+
+        async with self._semaphore:
             try:
-                result = await handler(websocket, params, user_info, send_callback)
+                # 添加超时控制
+                result = await asyncio.wait_for(
+                    handler(websocket, params, user_info, send_callback),
+                    timeout=self.rpc_config.timeout_seconds,
+                )
                 return {"id": msg_id, "result": result}
+            except TimeoutError:
+                logger.warning(f"RPC 请求超时: {method}")
+                return {"id": msg_id, "error": {"code": -32001, "message": "Request timeout"}}
             except Exception as e:
                 logger.error(f"RPC 方法执行错误: {method}, {e}")
                 return {"id": msg_id, "error": {"code": -32000, "message": str(e)}}
-        else:
-            return {"id": msg_id, "error": {"code": -32601, "message": f"方法不存在: {method}"}}
 
     async def _handle_connect(
         self, _websocket: WebSocket, _params: dict[str, Any], user_info: dict[str, Any], _send_callback: Any
@@ -405,6 +397,13 @@ async def websocket_endpoint(
     """
     request = websocket.scope.get("request")
 
+    graceful_shutdown = getattr(request.app.state, "graceful_shutdown", None) if request else None
+    if graceful_shutdown and graceful_shutdown.is_shutting_down():
+        await websocket.accept()
+        await websocket.send_json({"error": "服务器正在关闭，拒绝新连接"})
+        await websocket.close(code=1013, reason="Server shutting down")
+        return
+
     auth_result = await authenticate_websocket(
         websocket=websocket, request=request, token=token, password=password
     )
@@ -423,7 +422,13 @@ async def websocket_endpoint(
         await websocket.close(code=4001, reason="Authentication failed")
         return
 
-    await manager.connect(websocket, auth_result)
+    await websocket.accept()
+    conn_id = str(uuid.uuid4())
+    added = await connection_pool.add(conn_id, websocket, auth_result)
+    if not added:
+        await websocket.send_json({"error": "连接池已满，请稍后重试"})
+        await websocket.close(code=1013, reason="Connection pool full")
+        return
 
     config = getattr(request.app.state, "config", None) if request else None
     rpc_handler = RPCHandler(config=config)
@@ -431,21 +436,22 @@ async def websocket_endpoint(
     try:
         while True:
             data = await websocket.receive_text()
+            connection_pool.update_activity(conn_id)
 
             try:
                 message = json.loads(data)
             except json.JSONDecodeError:
-                await manager.send_json(websocket, {"error": "无效的 JSON 格式"})
+                await connection_pool.send_to(conn_id, {"error": "无效的 JSON 格式"})
                 continue
 
             if "method" in message:
-                response = await rpc_handler.handle(websocket, message, auth_result)
-                await manager.send_json(websocket, response)
+                response = await rpc_handler.handle(websocket, message, auth_result, raw_data=data)
+                await connection_pool.send_to(conn_id, response)
             else:
                 logger.debug(f"收到 WebSocket 消息: {message}")
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        await connection_pool.remove(conn_id)
     except Exception as e:
         logger.error(f"WebSocket 错误: {e}")
-        manager.disconnect(websocket)
+        await connection_pool.remove(conn_id)

@@ -10,6 +10,7 @@ from typing import Any
 
 from loguru import logger
 
+from core.logging.redact import RedactFilter
 from core.types.config import LogLevel
 
 
@@ -17,6 +18,7 @@ class Logger:
     """日志管理器。"""
 
     _initialized: bool = False
+    _redact_filter: RedactFilter | None = None
 
     @classmethod
     def setup(
@@ -28,6 +30,7 @@ class Logger:
         rotation: str = "10 MB",
         retention: str = "7 days",
         json_format: bool = False,
+        redact_enabled: bool = True,
     ) -> None:
         """配置日志系统。
 
@@ -39,15 +42,16 @@ class Logger:
             rotation: 日志轮转大小。
             retention: 日志保留时间。
             json_format: 是否使用 JSON 格式。
+            redact_enabled: 是否启用敏感信息脱敏。
         """
         if cls._initialized:
             logger.debug("日志系统已初始化，跳过重复配置")
             return
 
-        # 移除默认处理器
         logger.remove()
 
-        # 设置默认格式
+        cls._redact_filter = RedactFilter(enabled=redact_enabled)
+
         if format_str is None:
             format_str = (
                 "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
@@ -56,11 +60,9 @@ class Logger:
                 "<level>{message}</level>"
             )
 
-        # JSON 格式
         if json_format:
             format_str = None
 
-        # 添加控制台处理器
         logger.add(
             sys.stderr,
             format=format_str,
@@ -68,9 +70,9 @@ class Logger:
             colorize=True,
             backtrace=True,
             diagnose=True,
+            filter=cls._redact_filter,
         )
 
-        # 添加文件处理器
         if file_enabled and file_path:
             file_path = Path(file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -83,6 +85,7 @@ class Logger:
                     rotation=rotation,
                     retention=retention,
                     compression="gz",
+                    filter=cls._redact_filter,
                 )
             else:
                 logger.add(
@@ -93,10 +96,12 @@ class Logger:
                     retention=retention,
                     compression="gz",
                     encoding="utf-8",
+                    filter=cls._redact_filter,
                 )
 
         cls._initialized = True
-        logger.info(f"日志系统初始化完成，级别: {level}")
+        redact_status = "启用" if redact_enabled else "禁用"
+        logger.info(f"日志系统初始化完成，级别: {level}，脱敏: {redact_status}")
 
     @classmethod
     def get_logger(cls) -> Any:
@@ -112,6 +117,7 @@ class Logger:
         """
         level_str = level.value if isinstance(level, LogLevel) else level
         logger.remove()
+        redact_filter = cls._redact_filter or RedactFilter(enabled=True)
         logger.add(
             sys.stderr,
             level=level_str,
@@ -122,6 +128,7 @@ class Logger:
                 "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
                 "<level>{message}</level>"
             ),
+            filter=redact_filter,
         )
         logger.info(f"日志级别已更新为: {level_str}")
 

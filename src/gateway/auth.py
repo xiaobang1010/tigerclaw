@@ -15,10 +15,15 @@ from gateway.net import (
     is_trusted_proxy_address,
 )
 from gateway.rate_limit import (
+    AUTH_RATE_LIMIT_SCOPE_PASSWORD,
     AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
+    AUTH_RATE_LIMIT_SCOPE_TAILSCALE,
+    AUTH_RATE_LIMIT_SCOPE_TOKEN,
     AuthRateLimiter,
     RateLimitCheckResult,
+    RateLimiterWithLogging,
 )
+from gateway.tailscale import run_tailscale_whois, verify_tailscale_user
 from security.secret_equal import safe_equal_secret
 
 
@@ -258,10 +263,19 @@ def get_tailscale_user(headers: dict[str, Any]) -> dict[str, str] | None:
         用户信息字典，或 None。
     """
     def header_value(key: str) -> str | None:
-        value = headers.get(key) or headers.get(key.lower())
-        if isinstance(value, list):
-            return value[0] if value else None
-        return value
+        value = headers.get(key)
+        if value:
+            if isinstance(value, list):
+                return value[0] if value else None
+            return value
+
+        key_lower = key.lower()
+        for k, v in headers.items():
+            if k.lower() == key_lower:
+                if isinstance(v, list):
+                    return v[0] if v else None
+                return v
+        return None
 
     login = header_value("tailscale-user-login")
     if not login or not login.strip():
@@ -316,6 +330,27 @@ def is_tailscale_proxy_request(headers: dict[str, Any], remote_addr: str | None)
     return is_loopback_address(remote_addr) and has_tailscale_proxy_headers(headers)
 
 
+def _get_rate_limit_scope_for_auth_mode(
+    mode: ResolvedGatewayAuthMode, auth_method: AuthMethod | None = None
+) -> str:
+    """根据认证模式获取对应的速率限制作用域。
+
+    Args:
+        mode: 认证模式。
+        auth_method: 认证方法（用于 Tailscale 等特殊情况）。
+
+    Returns:
+        对应的速率限制作用域。
+    """
+    if auth_method == AuthMethod.TAILSCALE:
+        return AUTH_RATE_LIMIT_SCOPE_TAILSCALE
+    if mode == ResolvedGatewayAuthMode.TOKEN:
+        return AUTH_RATE_LIMIT_SCOPE_TOKEN
+    if mode == ResolvedGatewayAuthMode.PASSWORD:
+        return AUTH_RATE_LIMIT_SCOPE_PASSWORD
+    return AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET
+
+
 async def authorize_gateway_connect(
     auth: ResolvedGatewayAuth,
     headers: dict[str, Any],
@@ -324,10 +359,11 @@ async def authorize_gateway_connect(
     connect_auth: ConnectAuth | None = None,
     trusted_proxies: list[str] | None = None,
     auth_surface: GatewayAuthSurface = GatewayAuthSurface.HTTP,
-    rate_limiter: AuthRateLimiter | None = None,
+    rate_limiter: AuthRateLimiter | RateLimiterWithLogging | None = None,
     client_ip: str | None = None,
-    rate_limit_scope: str = AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
+    rate_limit_scope: str | None = None,
     allow_real_ip_fallback: bool = False,
+    tailscale_whois: callable = run_tailscale_whois,
 ) -> GatewayAuthResult:
     """授权网关连接。
 
@@ -341,8 +377,9 @@ async def authorize_gateway_connect(
         auth_surface: 认证表面。
         rate_limiter: 速率限制器。
         client_ip: 客户端 IP。
-        rate_limit_scope: 速率限制作用域。
+        rate_limit_scope: 速率限制作用域（可选，默认根据认证模式自动选择）。
         allow_real_ip_fallback: 是否允许 X-Real-IP 后备。
+        tailscale_whois: Tailscale whois 函数（用于测试注入）。
 
     Returns:
         认证结果。
@@ -386,9 +423,15 @@ async def authorize_gateway_connect(
         allow_real_ip_fallback=allow_real_ip_fallback,
     )
 
+    effective_scope = rate_limit_scope or _get_rate_limit_scope_for_auth_mode(auth.mode)
+
     if rate_limiter:
-        rl_check: RateLimitCheckResult = rate_limiter.check(ip, rate_limit_scope)
+        rl_check: RateLimitCheckResult = rate_limiter.check(ip, effective_scope)
         if not rl_check.allowed:
+            logger.warning(
+                f"认证被限流: ip={ip}, scope={effective_scope}, "
+                f"retry_after_ms={rl_check.retry_after_ms}"
+            )
             return GatewayAuthResult(
                 ok=False,
                 reason="rate_limited",
@@ -397,10 +440,16 @@ async def authorize_gateway_connect(
             )
 
     if allow_tailscale_header_auth and auth.allow_tailscale and not local_direct:
-        tailscale_user = get_tailscale_user(headers)
-        if tailscale_user and is_tailscale_proxy_request(headers, remote_addr):
+        tailscale_scope = AUTH_RATE_LIMIT_SCOPE_TAILSCALE
+        tailscale_user, tailscale_reason = await verify_tailscale_user(
+            headers=headers,
+            remote_addr=remote_addr,
+            tailscale_whois=tailscale_whois,
+        )
+        if tailscale_user:
             logger.debug(f"Tailscale 用户认证成功: {tailscale_user['login']}")
-            rate_limiter.reset(ip, rate_limit_scope) if rate_limiter else None
+            if rate_limiter:
+                rate_limiter.reset(ip, tailscale_scope)
             return GatewayAuthResult(
                 ok=True,
                 method=AuthMethod.TAILSCALE,
@@ -408,6 +457,7 @@ async def authorize_gateway_connect(
             )
 
     if auth.mode == ResolvedGatewayAuthMode.TOKEN:
+        token_scope = rate_limit_scope or AUTH_RATE_LIMIT_SCOPE_TOKEN
         if not auth.token:
             return GatewayAuthResult(ok=False, reason="token_missing_config")
 
@@ -415,13 +465,16 @@ async def authorize_gateway_connect(
             return GatewayAuthResult(ok=False, reason="token_missing")
 
         if not safe_equal_secret(connect_auth.token, auth.token):
-            rate_limiter.record_failure(ip, rate_limit_scope) if rate_limiter else None
+            if rate_limiter:
+                rate_limiter.record_failure(ip, token_scope)
             return GatewayAuthResult(ok=False, reason="token_mismatch")
 
-        rate_limiter.reset(ip, rate_limit_scope) if rate_limiter else None
+        if rate_limiter:
+            rate_limiter.reset(ip, token_scope)
         return GatewayAuthResult(ok=True, method=AuthMethod.TOKEN)
 
     if auth.mode == ResolvedGatewayAuthMode.PASSWORD:
+        password_scope = rate_limit_scope or AUTH_RATE_LIMIT_SCOPE_PASSWORD
         if not auth.password:
             return GatewayAuthResult(ok=False, reason="password_missing_config")
 
@@ -429,13 +482,16 @@ async def authorize_gateway_connect(
             return GatewayAuthResult(ok=False, reason="password_missing")
 
         if not safe_equal_secret(connect_auth.password, auth.password):
-            rate_limiter.record_failure(ip, rate_limit_scope) if rate_limiter else None
+            if rate_limiter:
+                rate_limiter.record_failure(ip, password_scope)
             return GatewayAuthResult(ok=False, reason="password_mismatch")
 
-        rate_limiter.reset(ip, rate_limit_scope) if rate_limiter else None
+        if rate_limiter:
+            rate_limiter.reset(ip, password_scope)
         return GatewayAuthResult(ok=True, method=AuthMethod.PASSWORD)
 
-    rate_limiter.record_failure(ip, rate_limit_scope) if rate_limiter else None
+    if rate_limiter:
+        rate_limiter.record_failure(ip, effective_scope)
     return GatewayAuthResult(ok=False, reason="unauthorized")
 
 
@@ -446,10 +502,11 @@ async def authorize_http_gateway_connect(
     host_header: str | None = None,
     connect_auth: ConnectAuth | None = None,
     trusted_proxies: list[str] | None = None,
-    rate_limiter: AuthRateLimiter | None = None,
+    rate_limiter: AuthRateLimiter | RateLimiterWithLogging | None = None,
     client_ip: str | None = None,
-    rate_limit_scope: str = AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
+    rate_limit_scope: str | None = None,
     allow_real_ip_fallback: bool = False,
+    tailscale_whois: callable = run_tailscale_whois,
 ) -> GatewayAuthResult:
     """授权 HTTP 网关连接。
 
@@ -462,8 +519,9 @@ async def authorize_http_gateway_connect(
         trusted_proxies: 受信任的代理列表。
         rate_limiter: 速率限制器。
         client_ip: 客户端 IP。
-        rate_limit_scope: 速率限制作用域。
+        rate_limit_scope: 速率限制作用域（可选，默认根据认证模式自动选择）。
         allow_real_ip_fallback: 是否允许 X-Real-IP 后备。
+        tailscale_whois: Tailscale whois 函数（用于测试注入）。
 
     Returns:
         认证结果。
@@ -480,6 +538,7 @@ async def authorize_http_gateway_connect(
         client_ip=client_ip,
         rate_limit_scope=rate_limit_scope,
         allow_real_ip_fallback=allow_real_ip_fallback,
+        tailscale_whois=tailscale_whois,
     )
 
 
@@ -490,10 +549,11 @@ async def authorize_ws_control_ui_gateway_connect(
     host_header: str | None = None,
     connect_auth: ConnectAuth | None = None,
     trusted_proxies: list[str] | None = None,
-    rate_limiter: AuthRateLimiter | None = None,
+    rate_limiter: AuthRateLimiter | RateLimiterWithLogging | None = None,
     client_ip: str | None = None,
-    rate_limit_scope: str = AUTH_RATE_LIMIT_SCOPE_SHARED_SECRET,
+    rate_limit_scope: str | None = None,
     allow_real_ip_fallback: bool = False,
+    tailscale_whois: callable = run_tailscale_whois,
 ) -> GatewayAuthResult:
     """授权 WebSocket 控制界面连接。
 
@@ -506,8 +566,9 @@ async def authorize_ws_control_ui_gateway_connect(
         trusted_proxies: 受信任的代理列表。
         rate_limiter: 速率限制器。
         client_ip: 客户端 IP。
-        rate_limit_scope: 速率限制作用域。
+        rate_limit_scope: 速率限制作用域（可选，默认根据认证模式自动选择）。
         allow_real_ip_fallback: 是否允许 X-Real-IP 后备。
+        tailscale_whois: Tailscale whois 函数（用于测试注入）。
 
     Returns:
         认证结果。
@@ -524,4 +585,5 @@ async def authorize_ws_control_ui_gateway_connect(
         client_ip=client_ip,
         rate_limit_scope=rate_limit_scope,
         allow_real_ip_fallback=allow_real_ip_fallback,
+        tailscale_whois=tailscale_whois,
     )
