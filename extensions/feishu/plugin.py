@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from loguru import logger
 
-from tigerclaw.plugins.types import (
+from plugins.types import (
     ChannelPlugin,
     PluginContext,
     PluginManifest,
@@ -50,7 +50,7 @@ class FeishuChannelPlugin(ChannelPlugin):
             version="0.1.0",
             description="飞书消息渠道插件",
             type=PluginType.CHANNEL,
-            main="tigerclaw.extensions.feishu.plugin",
+            main="extensions.feishu.plugin",
         )
         super().__init__(manifest)
         self.config = config or FeishuConfig()

@@ -11,7 +11,7 @@ build/
 htmlcov/
 *.lock
 
-/context/
+context/
 docs/
 tests/
 
