@@ -8,6 +8,7 @@ from typing import Any
 
 from loguru import logger
 
+from agents.plugins.types import ProviderCapabilities
 from agents.providers.base import LLMProvider, ProviderConfig
 from core.types.messages import ChatResponse, Message, MessageChunk
 from core.types.tools import ToolDefinition
@@ -18,16 +19,41 @@ class OpenAIProvider(LLMProvider):
 
     SUPPORTED_MODELS = [
         "gpt-4",
+        "gpt-4-32k",
         "gpt-4-turbo",
+        "gpt-4-turbo-preview",
         "gpt-4o",
         "gpt-4o-mini",
+        "gpt-4o-realtime-preview",
         "gpt-3.5-turbo",
+        "gpt-3.5-turbo-16k",
         "o1",
         "o1-mini",
         "o1-preview",
+        "o1-pro",
         "o3",
         "o3-mini",
+        "chatgpt-4o-latest",
     ]
+
+    MODEL_CONTEXT_WINDOWS: dict[str, int] = {
+        "gpt-4": 8192,
+        "gpt-4-32k": 32768,
+        "gpt-4-turbo": 128000,
+        "gpt-4-turbo-preview": 128000,
+        "gpt-4o": 128000,
+        "gpt-4o-mini": 128000,
+        "gpt-4o-realtime-preview": 128000,
+        "gpt-3.5-turbo": 16385,
+        "gpt-3.5-turbo-16k": 16385,
+        "o1": 200000,
+        "o1-mini": 128000,
+        "o1-preview": 128000,
+        "o1-pro": 200000,
+        "o3": 200000,
+        "o3-mini": 200000,
+        "chatgpt-4o-latest": 128000,
+    }
 
     def __init__(self, config: ProviderConfig) -> None:
         super().__init__(config)
@@ -40,6 +66,48 @@ class OpenAIProvider(LLMProvider):
     @property
     def supported_models(self) -> list[str]:
         return self.SUPPORTED_MODELS
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """OpenAI 能力声明。"""
+        return ProviderCapabilities(
+            supports_streaming=True,
+            supports_tools=True,
+            supports_vision=True,
+            supports_audio=False,
+            max_context_tokens=200000,
+            supported_models=self.SUPPORTED_MODELS,
+        )
+
+    @property
+    def context_window(self) -> int | None:
+        """根据配置的模型返回上下文窗口大小。
+
+        如果配置中指定了 context_window，优先使用配置值。
+        否则尝试根据模型名称匹配。
+        """
+        if self.config.context_window:
+            return self.config.context_window
+        return None
+
+    def get_context_window_for_model(self, model: str) -> int:
+        """获取指定模型的上下文窗口大小。
+
+        Args:
+            model: 模型 ID。
+
+        Returns:
+            上下文窗口大小。
+        """
+        if self.config.context_window:
+            return self.config.context_window
+
+        model_lower = model.lower()
+        for model_key, window in self.MODEL_CONTEXT_WINDOWS.items():
+            if model_lower.startswith(model_key.lower()):
+                return window
+
+        return 128000
 
     def _get_client(self):
         """获取 OpenAI 客户端。"""

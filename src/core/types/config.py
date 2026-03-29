@@ -9,6 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from core.types.providers import AgentsConfig, ModelsConfig
+
 
 class BindMode(StrEnum):
     """绑定模式枚举。"""
@@ -242,13 +244,6 @@ class ModelConfig(BaseModel):
     model_config = {"use_enum_values": True}
 
 
-class ModelsConfig(BaseModel):
-    """模型配置集合。"""
-
-    default: str = Field(default="gpt-4", description="默认模型")
-    models: list[ModelConfig] = Field(default_factory=list, description="模型列表")
-
-
 class ChannelConfig(BaseModel):
     """渠道配置基类。"""
 
@@ -309,13 +304,6 @@ class AgentConfig(BaseModel):
     enable_tools: bool = Field(default=True, description="是否启用工具")
     failover_enabled: bool = Field(default=True, description="是否启用故障转移")
     max_retries: int = Field(default=3, description="最大重试次数")
-
-
-class AgentsConfig(BaseModel):
-    """代理配置集合。"""
-
-    main: AgentConfig = Field(default_factory=AgentConfig, description="主代理配置")
-    subagents: dict[str, AgentConfig] = Field(default_factory=dict, description="子代理配置")
 
 
 class LoggingConfig(BaseModel):

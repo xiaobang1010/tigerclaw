@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from agents.plugins.types import ProviderCapabilities, ProviderRuntimeHooks
 from core.types.messages import ChatResponse, Message, MessageChunk
 from core.types.tools import ToolDefinition
 
@@ -21,6 +22,7 @@ class ProviderConfig(BaseModel):
     timeout: float = 60.0
     max_retries: int = 3
     extra_headers: dict[str, str] = {}
+    context_window: int | None = None
 
 
 class LLMProvider(ABC):
@@ -33,6 +35,7 @@ class LLMProvider(ABC):
             config: 提供商配置。
         """
         self.config = config
+        self._hooks: ProviderRuntimeHooks | None = None
 
     @property
     @abstractmethod
@@ -45,6 +48,49 @@ class LLMProvider(ABC):
     def supported_models(self) -> list[str]:
         """支持的模型列表。"""
         pass
+
+    @property
+    @abstractmethod
+    def capabilities(self) -> ProviderCapabilities:
+        """提供商能力声明。"""
+        pass
+
+    @property
+    def hooks(self) -> ProviderRuntimeHooks | None:
+        """运行时钩子。"""
+        return self._hooks
+
+    @property
+    def context_window(self) -> int | None:
+        """默认上下文窗口大小。
+
+        子类可以覆盖此属性以提供模型特定的上下文窗口。
+        """
+        return self.config.context_window
+
+    def get_capabilities(self) -> ProviderCapabilities:
+        """获取提供商能力声明。
+
+        Returns:
+            提供商能力对象。
+        """
+        return self.capabilities
+
+    def get_hooks(self) -> ProviderRuntimeHooks | None:
+        """获取运行时钩子。
+
+        Returns:
+            运行时钩子对象，如果未设置则返回 None。
+        """
+        return self._hooks
+
+    def set_hooks(self, hooks: ProviderRuntimeHooks | None) -> None:
+        """设置运行时钩子。
+
+        Args:
+            hooks: 运行时钩子对象。
+        """
+        self._hooks = hooks
 
     @abstractmethod
     async def chat(

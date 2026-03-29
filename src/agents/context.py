@@ -8,6 +8,7 @@ from typing import Any
 
 from loguru import logger
 
+from agents.context_cache import resolve_context_tokens_for_model, set_context_tokens
 from core.types.messages import Message
 from core.types.sessions import SessionConfig
 
@@ -22,6 +23,7 @@ class ContextManager:
         compression_threshold: float = 0.9,
         compression_strategy: str = "summarize",
         auto_compress: bool = True,
+        provider: str | None = None,
     ):
         """初始化上下文管理器。
 
@@ -31,9 +33,25 @@ class ContextManager:
             compression_threshold: 压缩阈值（默认 0.9，即 90% 时触发）。
             compression_strategy: 压缩策略（summarize/truncate/sliding）。
             auto_compress: 是否自动压缩。
+            provider: 模型提供商名称（用于上下文窗口解析）。
         """
         self.config = config
-        self.max_tokens = max_tokens or config.context_window
+        self.provider = provider
+        self.model = config.model
+
+        # 使用 resolve_context_tokens_for_model 解析上下文窗口
+        resolved_tokens = resolve_context_tokens_for_model(
+            model=self.model,
+            provider=provider,
+        )
+
+        # 如果配置中指定了 context_window，缓存到全局缓存
+        if config.context_window:
+            set_context_tokens(self.model, config.context_window)
+            if provider:
+                set_context_tokens(f"{provider}/{self.model}", config.context_window)
+
+        self.max_tokens = max_tokens or config.context_window or resolved_tokens
         self.messages: list[Message] = []
         self._system_prompt: str | None = None
         self._token_count = 0
@@ -51,6 +69,32 @@ class ContextManager:
     def set_system_prompt(self, prompt: str) -> None:
         """设置系统提示。"""
         self._system_prompt = prompt
+
+    def update_context_window(self, model: str, provider: str | None = None) -> None:
+        """动态更新上下文窗口。
+
+        根据模型和提供商重新解析上下文窗口大小，
+        并更新 max_tokens。
+
+        Args:
+            model: 模型 ID。
+            provider: 提供商名称（可选）。
+        """
+        self.model = model
+        if provider is not None:
+            self.provider = provider
+
+        # 使用 resolve_context_tokens_for_model 解析上下文窗口
+        resolved_tokens = resolve_context_tokens_for_model(
+            model=model,
+            provider=self.provider,
+        )
+
+        self.max_tokens = resolved_tokens
+        logger.debug(
+            f"上下文窗口已更新: model={model}, provider={self.provider}, "
+            f"max_tokens={self.max_tokens}"
+        )
 
     def add_message(self, message: Message) -> None:
         """添加消息。
@@ -91,12 +135,45 @@ class ContextManager:
     def count_tokens(self, messages: list[Message]) -> int:
         """计算消息列表的 Token 数量。
 
-        使用简单估算方法。
+        优先使用 tiktoken 进行精确计数（当有 provider 时），
+        否则使用简单估算方法。
+
+        Args:
+            messages: 消息列表。
+
+        Returns:
+            Token 数量。
         """
+        # 如果有 provider，尝试使用 tiktoken 进行精确计数
+        if self.provider:
+            try:
+                import tiktoken
+
+                # 根据模型选择编码
+                try:
+                    encoding = tiktoken.encoding_for_model(self.model)
+                except KeyError:
+                    # 模型不在 tiktoken 支持列表中，使用 cl100k_base（GPT-4 编码）
+                    encoding = tiktoken.get_encoding("cl100k_base")
+
+                total = 0
+                for msg in messages:
+                    if isinstance(msg.content, str):
+                        total += len(encoding.encode(msg.content))
+                    elif isinstance(msg.content, list):
+                        for block in msg.content:
+                            if hasattr(block, "text"):
+                                total += len(encoding.encode(block.text))
+                return total
+            except ImportError:
+                logger.debug("tiktoken 未安装，使用估算方法")
+            except Exception as e:
+                logger.debug(f"tiktoken 计数失败: {e}，使用估算方法")
+
+        # 简单估算：平均每 4 个字符约 1 个 token
         total = 0
         for msg in messages:
             if isinstance(msg.content, str):
-                # 简单估算：平均每 4 个字符约 1 个 token
                 total += len(msg.content) // 4
             elif isinstance(msg.content, list):
                 for block in msg.content:
@@ -141,6 +218,7 @@ class ContextManager:
 
         # 执行同步压缩（使用同步包装器）
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -149,10 +227,10 @@ class ContextManager:
         if loop is not None:
             # 已有事件循环，创建任务
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(
-                    asyncio.run,
-                    self.compress(strategy=self.compression_strategy)
+                    asyncio.run, self.compress(strategy=self.compression_strategy)
                 )
                 future.result()
         else:
@@ -242,9 +320,7 @@ class ContextManager:
 
         summary = self._generate_summary(old_messages)
 
-        self.messages = [
-            Message(role="system", content=f"[历史摘要]\n{summary}")
-        ] + recent_messages
+        self.messages = [Message(role="system", content=f"[历史摘要]\n{summary}")] + recent_messages
         self._update_token_count()
         logger.info(f"摘要压缩完成，保留 {len(self.messages)} 条消息")
         return self.get_messages()
@@ -311,7 +387,9 @@ class ContextManager:
             "messages": [msg.model_dump() for msg in self.messages],
             "compression_stats": {
                 "compression_count": self.compression_count,
-                "last_compression_at": self.last_compression_at.isoformat() if self.last_compression_at else None,
+                "last_compression_at": self.last_compression_at.isoformat()
+                if self.last_compression_at
+                else None,
                 "tokens_saved": self.tokens_saved,
                 "compression_threshold": self.compression_threshold,
                 "compression_strategy": self.compression_strategy,

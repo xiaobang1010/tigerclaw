@@ -4,6 +4,7 @@
 """
 
 from core.types.config import (
+    AgentConfig,
     AgentsConfig,
     AuthConfig,
     AuthProfile,
@@ -46,6 +47,11 @@ from core.types.messages import (
     TextContent,
     ToolResultContent,
     ToolUseContent,
+)
+from core.types.providers import (
+    AgentDefaultsConfig,
+    ProviderConfigEntry,
+    ProviderModelConfig,
 )
 from core.types.sessions import (
     DeliveryContext,
@@ -139,4 +145,8 @@ __all__ = [
     "AgentsConfig",
     "LoggingConfig",
     "TigerClawConfig",
+    # Provider 配置类型
+    "ProviderModelConfig",
+    "ProviderConfigEntry",
+    "AgentDefaultsConfig",
 ]

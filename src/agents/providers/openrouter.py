@@ -6,6 +6,7 @@
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agents.plugins.types import ProviderCapabilities
 from agents.providers.base import LLMProvider, ProviderConfig
 from core.types.messages import ChatResponse, Message, MessageChunk
 from core.types.tools import ToolDefinition
@@ -21,16 +22,35 @@ class OpenRouterProvider(LLMProvider):
     SUPPORTED_MODELS = [
         "openrouter/auto",
         "openrouter/openai/gpt-4",
+        "openrouter/openai/gpt-4-turbo",
+        "openrouter/openai/gpt-4o",
+        "openrouter/openai/gpt-4o-mini",
+        "openrouter/openai/o1",
+        "openrouter/openai/o1-mini",
+        "openrouter/openai/o3",
+        "openrouter/openai/o3-mini",
         "openrouter/anthropic/claude-3.5-sonnet",
+        "openrouter/anthropic/claude-3.5-haiku",
+        "openrouter/anthropic/claude-3-opus",
+        "openrouter/anthropic/claude-4",
+        "openrouter/anthropic/claude-4-opus",
+        "openrouter/anthropic/claude-4-sonnet",
         "openrouter/google/gemini-pro",
+        "openrouter/google/gemini-2.0-flash",
+        "openrouter/google/gemini-2.5-pro",
         "openrouter/meta-llama/llama-3-70b-instruct",
+        "openrouter/meta-llama/llama-3.1-405b-instruct",
+        "openrouter/meta-llama/llama-3.2-90b-vision-instruct",
         "openrouter/mistralai/mixtral-8x7b-instruct",
+        "openrouter/mistralai/mistral-large",
+        "openrouter/deepseek/deepseek-chat",
+        "openrouter/deepseek/deepseek-reasoner",
+        "openrouter/x-ai/grok-beta",
     ]
 
     DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
     def __init__(self, config: ProviderConfig) -> None:
-        # 设置 OpenRouter 的 base_url
         if not config.base_url:
             config.base_url = self.DEFAULT_BASE_URL
         super().__init__(config)
@@ -43,6 +63,76 @@ class OpenRouterProvider(LLMProvider):
     @property
     def supported_models(self) -> list[str]:
         return self.SUPPORTED_MODELS
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """OpenRouter 能力声明。
+
+        OpenRouter 作为代理服务，支持多种模型的能力。
+        这里声明基本能力，实际能力取决于具体模型。
+        """
+        return ProviderCapabilities(
+            supports_streaming=True,
+            supports_tools=True,
+            supports_vision=True,
+            supports_audio=False,
+            max_context_tokens=200000,
+            supported_models=self.SUPPORTED_MODELS,
+        )
+
+    @property
+    def context_window(self) -> int | None:
+        """OpenRouter 的上下文窗口。
+
+        OpenRouter 支持多种模型，上下文窗口取决于具体模型。
+        如果配置中指定了 context_window，优先使用配置值。
+        """
+        if self.config.context_window:
+            return self.config.context_window
+        return None
+
+    def get_context_window_for_model(self, model: str) -> int:
+        """获取指定模型的上下文窗口大小。
+
+        OpenRouter 模型的上下文窗口取决于底层模型。
+
+        Args:
+            model: 模型 ID。
+
+        Returns:
+            上下文窗口大小。
+        """
+        if self.config.context_window:
+            return self.config.context_window
+
+        model_lower = model.lower()
+
+        if "gpt-4-32k" in model_lower:
+            return 32768
+        if "gpt-4" in model_lower or "gpt-4o" in model_lower:
+            return 128000
+        if "o1" in model_lower or "o3" in model_lower:
+            return 200000
+        if "claude" in model_lower:
+            return 200000
+        if "gemini-2.5-pro" in model_lower:
+            return 1048576
+        if "gemini" in model_lower:
+            return 1000000
+        if "llama-3.1-405b" in model_lower:
+            return 131072
+        if "llama-3" in model_lower:
+            return 128000
+        if "mistral-large" in model_lower:
+            return 128000
+        if "mixtral" in model_lower:
+            return 32768
+        if "deepseek" in model_lower:
+            return 128000
+        if "grok" in model_lower:
+            return 131072
+
+        return 128000
 
     def _get_client(self):
         """获取 OpenAI 兼容客户端。"""

@@ -6,6 +6,7 @@
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agents.plugins.types import ProviderCapabilities
 from agents.providers.base import LLMProvider, ProviderConfig
 from core.types.messages import ChatResponse, Message, MessageChunk
 from core.types.tools import ToolDefinition
@@ -17,16 +18,50 @@ class AnthropicProvider(LLMProvider):
     SUPPORTED_MODELS = [
         "claude-3-5-sonnet",
         "claude-3-5-sonnet-latest",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20240620",
         "claude-3-5-haiku",
         "claude-3-5-haiku-latest",
+        "claude-3-5-haiku-20241022",
         "claude-3-opus",
         "claude-3-opus-latest",
+        "claude-3-opus-20240229",
         "claude-3-sonnet",
+        "claude-3-sonnet-20240229",
         "claude-3-haiku",
+        "claude-3-haiku-20240307",
         "claude-4",
         "claude-4-opus",
+        "claude-4-opus-latest",
         "claude-4-sonnet",
+        "claude-4-sonnet-latest",
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
     ]
+
+    MODEL_CONTEXT_WINDOWS: dict[str, int] = {
+        "claude-3-5-sonnet": 200000,
+        "claude-3-5-sonnet-latest": 200000,
+        "claude-3-5-sonnet-20241022": 200000,
+        "claude-3-5-sonnet-20240620": 200000,
+        "claude-3-5-haiku": 200000,
+        "claude-3-5-haiku-latest": 200000,
+        "claude-3-5-haiku-20241022": 200000,
+        "claude-3-opus": 200000,
+        "claude-3-opus-latest": 200000,
+        "claude-3-opus-20240229": 200000,
+        "claude-3-sonnet": 200000,
+        "claude-3-sonnet-20240229": 200000,
+        "claude-3-haiku": 200000,
+        "claude-3-haiku-20240307": 200000,
+        "claude-4": 200000,
+        "claude-4-opus": 200000,
+        "claude-4-opus-latest": 200000,
+        "claude-4-sonnet": 200000,
+        "claude-4-sonnet-latest": 200000,
+        "claude-sonnet-4-20250514": 200000,
+        "claude-opus-4-20250514": 200000,
+    }
 
     def __init__(self, config: ProviderConfig) -> None:
         super().__init__(config)
@@ -39,6 +74,48 @@ class AnthropicProvider(LLMProvider):
     @property
     def supported_models(self) -> list[str]:
         return self.SUPPORTED_MODELS
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """Anthropic 能力声明。"""
+        return ProviderCapabilities(
+            supports_streaming=True,
+            supports_tools=True,
+            supports_vision=True,
+            supports_audio=False,
+            max_context_tokens=200000,
+            supported_models=self.SUPPORTED_MODELS,
+        )
+
+    @property
+    def context_window(self) -> int | None:
+        """根据配置的模型返回上下文窗口大小。
+
+        如果配置中指定了 context_window，优先使用配置值。
+        否则尝试根据模型名称匹配。
+        """
+        if self.config.context_window:
+            return self.config.context_window
+        return None
+
+    def get_context_window_for_model(self, model: str) -> int:
+        """获取指定模型的上下文窗口大小。
+
+        Args:
+            model: 模型 ID。
+
+        Returns:
+            上下文窗口大小。
+        """
+        if self.config.context_window:
+            return self.config.context_window
+
+        model_lower = model.lower()
+        for model_key, window in self.MODEL_CONTEXT_WINDOWS.items():
+            if model_lower.startswith(model_key.lower()):
+                return window
+
+        return 200000
 
     def _get_client(self):
         """获取 Anthropic 客户端。"""
