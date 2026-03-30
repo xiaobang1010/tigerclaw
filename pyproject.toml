@@ -43,6 +43,7 @@ slack = ["slack-sdk>=3.33.0"]
 discord = ["discord.py>=2.4.0"]
 telegram = ["python-telegram-bot>=21.0"]
 google = ["google-generativeai>=0.8.0"]
+local-embedding = ["sentence-transformers>=3.0.0"]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
@@ -51,7 +52,7 @@ dev = [
     "ruff>=0.8.0",
 ]
 all = [
-    "tigerclaw[openai,anthropic,openrouter,feishu,slack,discord,telegram,google,dev]",
+    "tigerclaw[openai,anthropic,openrouter,feishu,slack,discord,telegram,google,local-embedding,dev]",
 ]
 
 [project.scripts]
