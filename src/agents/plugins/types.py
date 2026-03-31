@@ -52,7 +52,7 @@ class ProviderPlugin:
     aliases: list[str] = field(default_factory=list)
     capabilities: ProviderCapabilities = field(default_factory=ProviderCapabilities)
     hooks: ProviderRuntimeHooks = field(default_factory=ProviderRuntimeHooks)
-    provider_factory: Callable[["ProviderConfig"], "LLMProvider"] | None = None
+    provider_factory: Callable[[ProviderConfig], LLMProvider] | None = None
 
     def matches(self, provider_id: str) -> bool:
         """检查给定的 provider_id 是否匹配此插件。

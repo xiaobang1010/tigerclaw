@@ -37,6 +37,12 @@ class RpcConfig:
             "tools.list",
             "tools.get",
             "tools.execute",
+            "exec.approvals.get",
+            "exec.approvals.set",
+            "exec.approvals.allowlist.add",
+            "exec.approvals.allowlist.remove",
+            "exec.approvals.node.get",
+            "exec.approvals.node.set",
         }
     )
 

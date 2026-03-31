@@ -6,7 +6,19 @@
 import typer
 from rich.console import Console
 
-from cli.commands import agent, config, doctor, gateway, models, plugins, sessions
+from cli.commands import (
+    agent,
+    approvals,
+    browser,
+    config,
+    devices,
+    doctor,
+    gateway,
+    models,
+    nodes,
+    plugins,
+    sessions,
+)
 
 __version__ = "0.1.0"
 
@@ -50,6 +62,10 @@ app.add_typer(doctor.app, name="doctor")
 app.add_typer(sessions.app, name="sessions")
 app.add_typer(models.app, name="models")
 app.add_typer(plugins.app, name="plugins")
+app.add_typer(devices.app, name="devices")
+app.add_typer(nodes.app, name="nodes")
+app.add_typer(approvals.app, name="approvals")
+app.add_typer(browser.app, name="browser")
 
 
 if __name__ == "__main__":

@@ -24,6 +24,14 @@ from gateway.auth import (
     resolve_gateway_auth,
 )
 from gateway.connection_pool import connection_pool
+from gateway.methods.approvals import (
+    handle_approvals_allowlist_add,
+    handle_approvals_allowlist_remove,
+    handle_approvals_get,
+    handle_approvals_node_get,
+    handle_approvals_node_set,
+    handle_approvals_set,
+)
 from gateway.methods.chat import handle_chat
 from gateway.methods.config import (
     handle_config_get,
@@ -238,6 +246,12 @@ class RPCHandler:
             "tools.list": self._handle_tools_list,
             "tools.get": self._handle_tools_get,
             "tools.execute": self._handle_tools_execute,
+            "exec.approvals.get": self._handle_approvals_get,
+            "exec.approvals.set": self._handle_approvals_set,
+            "exec.approvals.allowlist.add": self._handle_approvals_allowlist_add,
+            "exec.approvals.allowlist.remove": self._handle_approvals_allowlist_remove,
+            "exec.approvals.node.get": self._handle_approvals_node_get,
+            "exec.approvals.node.set": self._handle_approvals_node_set,
         }
 
         handler = handlers.get(method)
@@ -287,6 +301,12 @@ class RPCHandler:
                 "tools.list",
                 "tools.get",
                 "tools.execute",
+                "exec.approvals.get",
+                "exec.approvals.set",
+                "exec.approvals.allowlist.add",
+                "exec.approvals.allowlist.remove",
+                "exec.approvals.node.get",
+                "exec.approvals.node.set",
             ],
         }
 
@@ -380,6 +400,42 @@ class RPCHandler:
     ) -> dict[str, Any]:
         """处理工具执行请求。"""
         return await handle_tools_execute(params, user_info, self.tool_registry)
+
+    async def _handle_approvals_get(
+        self, _websocket: WebSocket, params: dict[str, Any], user_info: dict[str, Any], _send_callback: Any
+    ) -> dict[str, Any]:
+        """处理审批配置获取请求。"""
+        return await handle_approvals_get(params, user_info)
+
+    async def _handle_approvals_set(
+        self, _websocket: WebSocket, params: dict[str, Any], user_info: dict[str, Any], _send_callback: Any
+    ) -> dict[str, Any]:
+        """处理审批配置设置请求。"""
+        return await handle_approvals_set(params, user_info)
+
+    async def _handle_approvals_allowlist_add(
+        self, _websocket: WebSocket, params: dict[str, Any], user_info: dict[str, Any], _send_callback: Any
+    ) -> dict[str, Any]:
+        """处理 Allowlist 添加请求。"""
+        return await handle_approvals_allowlist_add(params, user_info)
+
+    async def _handle_approvals_allowlist_remove(
+        self, _websocket: WebSocket, params: dict[str, Any], user_info: dict[str, Any], _send_callback: Any
+    ) -> dict[str, Any]:
+        """处理 Allowlist 移除请求。"""
+        return await handle_approvals_allowlist_remove(params, user_info)
+
+    async def _handle_approvals_node_get(
+        self, _websocket: WebSocket, params: dict[str, Any], user_info: dict[str, Any], _send_callback: Any
+    ) -> dict[str, Any]:
+        """处理节点审批配置获取请求。"""
+        return await handle_approvals_node_get(params, user_info, None)
+
+    async def _handle_approvals_node_set(
+        self, _websocket: WebSocket, params: dict[str, Any], user_info: dict[str, Any], _send_callback: Any
+    ) -> dict[str, Any]:
+        """处理节点审批配置设置请求。"""
+        return await handle_approvals_node_set(params, user_info, None)
 
 
 async def websocket_endpoint(

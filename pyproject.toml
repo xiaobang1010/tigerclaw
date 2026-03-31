@@ -68,7 +68,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agents", "src/channels", "src/cli", "src/core", "src/gateway", "src/plugins", "src/security", "src/services", "src/sessions"]
+packages = ["src/agents", "src/channels", "src/cli", "src/core", "src/gateway", "src/infra", "src/plugins", "src/security", "src/services", "src/sessions"]
 
 [tool.ruff]
 target-version = "py314"
@@ -95,7 +95,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["agents", "channels", "cli", "core", "gateway", "plugins", "security", "services", "sessions"]
+known-first-party = ["agents", "channels", "cli", "core", "gateway", "infra", "plugins", "security", "services", "sessions"]
 
 [tool.ruff.format]
 quote-style = "double"
