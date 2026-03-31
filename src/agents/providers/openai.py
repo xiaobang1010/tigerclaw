@@ -4,6 +4,7 @@
 """
 
 from collections.abc import AsyncIterator
+from enum import StrEnum
 from typing import Any
 
 from loguru import logger
@@ -12,6 +13,172 @@ from agents.plugins.types import ProviderCapabilities
 from agents.providers.base import LLMProvider, ProviderConfig
 from core.types.messages import ChatResponse, Message, MessageChunk
 from core.types.tools import ToolDefinition
+
+
+class TransportMode(StrEnum):
+    """传输模式枚举。"""
+
+    SSE = "sse"
+    WEBSOCKET = "websocket"
+    AUTO = "auto"
+
+
+GPT_54_MODEL_ID = "gpt-5.4"
+GPT_54_PRO_MODEL_ID = "gpt-5.4-pro"
+GPT_54_MINI_MODEL_ID = "gpt-5.4-mini"
+GPT_54_NANO_MODEL_ID = "gpt-5.4-nano"
+GPT_54_CONTEXT_TOKENS = 1_050_000
+GPT_54_MAX_TOKENS = 128_000
+
+GPT_54_TEMPLATE_MODEL_IDS = ["gpt-5.2"]
+GPT_54_PRO_TEMPLATE_MODEL_IDS = ["gpt-5.2-pro", "gpt-5.2"]
+GPT_54_MINI_TEMPLATE_MODEL_IDS = ["gpt-5-mini"]
+GPT_54_NANO_TEMPLATE_MODEL_IDS = ["gpt-5-nano", "gpt-5-mini"]
+
+XHIGH_MODEL_IDS = [
+    "gpt-5.4",
+    "gpt-5.4-pro",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.2",
+]
+
+MODERN_MODEL_IDS = [
+    "gpt-5.4",
+    "gpt-5.4-pro",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.2",
+]
+
+
+def resolve_dynamic_model(model_id: str) -> dict[str, Any] | None:
+    """解析动态模型配置。
+
+    支持新模型的前向兼容，当模型不在已知列表中时，
+    尝试根据命名规则动态生成配置。
+
+    Args:
+        model_id: 模型 ID。
+
+    Returns:
+        模型配置字典，如果无法解析则返回 None。
+    """
+    lower = model_id.lower().strip()
+
+    if lower in (GPT_54_MODEL_ID, GPT_54_PRO_MODEL_ID):
+        return {
+            "id": model_id,
+            "context_window": GPT_54_CONTEXT_TOKENS,
+            "max_tokens": GPT_54_MAX_TOKENS,
+            "reasoning": True,
+            "input": ["text", "image"],
+        }
+    elif lower in (GPT_54_MINI_MODEL_ID, GPT_54_NANO_MODEL_ID):
+        return {
+            "id": model_id,
+            "reasoning": True,
+            "input": ["text", "image"],
+        }
+
+    return None
+
+
+def find_template(catalog: list[dict[str, Any]], template_ids: list[str]) -> dict[str, Any] | None:
+    """在模型目录中查找模板模型。
+
+    Args:
+        catalog: 模型目录列表。
+        template_ids: 模板模型 ID 列表（按优先级排序）。
+
+    Returns:
+        找到的模板模型，如果未找到则返回 None。
+    """
+    for template_id in template_ids:
+        for entry in catalog:
+            if entry.get("id", "").lower() == template_id.lower():
+                return entry
+    return None
+
+
+def augment_model_catalog(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """增强模型目录，添加前向兼容模型。
+
+    Args:
+        catalog: 原始模型目录。
+
+    Returns:
+        增强后的模型目录。
+    """
+    augmented = list(catalog)
+
+    gpt_54_template = find_template(catalog, GPT_54_TEMPLATE_MODEL_IDS)
+    if gpt_54_template:
+        augmented.append({
+            **gpt_54_template,
+            "id": GPT_54_MODEL_ID,
+            "name": GPT_54_MODEL_ID,
+            "context_window": GPT_54_CONTEXT_TOKENS,
+        })
+
+    gpt_54_pro_template = find_template(catalog, GPT_54_PRO_TEMPLATE_MODEL_IDS)
+    if gpt_54_pro_template:
+        augmented.append({
+            **gpt_54_pro_template,
+            "id": GPT_54_PRO_MODEL_ID,
+            "name": GPT_54_PRO_MODEL_ID,
+            "context_window": GPT_54_CONTEXT_TOKENS,
+        })
+
+    gpt_54_mini_template = find_template(catalog, GPT_54_MINI_TEMPLATE_MODEL_IDS)
+    if gpt_54_mini_template:
+        augmented.append({
+            **gpt_54_mini_template,
+            "id": GPT_54_MINI_MODEL_ID,
+            "name": GPT_54_MINI_MODEL_ID,
+        })
+
+    gpt_54_nano_template = find_template(catalog, GPT_54_NANO_TEMPLATE_MODEL_IDS)
+    if gpt_54_nano_template:
+        augmented.append({
+            **gpt_54_nano_template,
+            "id": GPT_54_NANO_MODEL_ID,
+            "name": GPT_54_NANO_MODEL_ID,
+        })
+
+    return augmented
+
+
+def get_transport_config(model: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
+    """获取传输配置。
+
+    Args:
+        model: 模型 ID。
+        options: 可选的配置选项。
+
+    Returns:
+        传输配置字典。
+    """
+    mode = options.get("transport", "auto") if options else "auto"
+
+    return {
+        "transport": TransportMode(mode),
+        "prefer_websocket": True,
+    }
+
+
+def matches_exact_or_prefix(model_id: str, model_ids: list[str]) -> bool:
+    """检查模型 ID 是否精确匹配或前缀匹配给定列表中的任一 ID。
+
+    Args:
+        model_id: 要检查的模型 ID。
+        model_ids: 模型 ID 列表。
+
+    Returns:
+        是否匹配。
+    """
+    lower = model_id.lower()
+    return any(lower == mid.lower() or lower.startswith(mid.lower() + "-") for mid in model_ids)
 
 
 class OpenAIProvider(LLMProvider):
@@ -75,6 +242,9 @@ class OpenAIProvider(LLMProvider):
             supports_tools=True,
             supports_vision=True,
             supports_audio=False,
+            supports_websocket=True,
+            supports_oauth=False,
+            transport_modes=["sse", "websocket", "auto"],
             max_context_tokens=200000,
             supported_models=self.SUPPORTED_MODELS,
         )
@@ -271,3 +441,53 @@ class OpenAIProvider(LLMProvider):
                 if isinstance(msg.content, str):
                     total += len(msg.content) // 4
             return total
+
+    def resolve_model(self, model_id: str) -> dict[str, Any] | None:
+        """解析模型配置（支持动态模型）。
+
+        先检查已知模型，再尝试动态解析。
+
+        Args:
+            model_id: 模型 ID。
+
+        Returns:
+            模型配置字典，如果无法解析则返回 None。
+        """
+        if model_id in self.SUPPORTED_MODELS:
+            return {"id": model_id}
+
+        return resolve_dynamic_model(model_id)
+
+    def get_transport_for_model(self, model: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
+        """获取模型推荐的传输配置。
+
+        Args:
+            model: 模型 ID。
+            options: 可选的配置选项。
+
+        Returns:
+            传输配置字典。
+        """
+        return get_transport_config(model, options)
+
+    def is_xhigh_thinking(self, model_id: str) -> bool:
+        """检查模型是否支持 X-High 思考模式。
+
+        Args:
+            model_id: 模型 ID。
+
+        Returns:
+            是否支持 X-High 思考模式。
+        """
+        return matches_exact_or_prefix(model_id, XHIGH_MODEL_IDS)
+
+    def is_modern_model(self, model_id: str) -> bool:
+        """检查模型是否为现代模型。
+
+        Args:
+            model_id: 模型 ID。
+
+        Returns:
+            是否为现代模型。
+        """
+        return matches_exact_or_prefix(model_id, MODERN_MODEL_IDS)

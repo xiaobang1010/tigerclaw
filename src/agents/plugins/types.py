@@ -22,6 +22,9 @@ class ProviderCapabilities:
     supports_tools: bool = True
     supports_vision: bool = False
     supports_audio: bool = False
+    supports_websocket: bool = False
+    supports_oauth: bool = False
+    transport_modes: list[str] = field(default_factory=lambda: ["sse"])
     max_context_tokens: int = 8192
     supported_models: list[str] = field(default_factory=list)
 

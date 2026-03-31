@@ -96,20 +96,31 @@ class OAuthCredential:
     """
 
     type: str = "oauth"
+    provider: str = ""
     access_token: str = ""
     refresh_token: str | None = None
     expires_at: datetime | None = None
+    client_id: str | None = None
+    email: str | None = None
+    display_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """转换为字典格式。"""
         result: dict[str, Any] = {
             "type": self.type,
+            "provider": self.provider,
             "access_token": self.access_token,
         }
         if self.refresh_token is not None:
             result["refresh_token"] = self.refresh_token
         if self.expires_at is not None:
             result["expires_at"] = self.expires_at.isoformat()
+        if self.client_id is not None:
+            result["client_id"] = self.client_id
+        if self.email is not None:
+            result["email"] = self.email
+        if self.display_name is not None:
+            result["display_name"] = self.display_name
         return result
 
     @classmethod
@@ -122,9 +133,13 @@ class OAuthCredential:
 
         return cls(
             type=data.get("type", "oauth"),
+            provider=data.get("provider", ""),
             access_token=data.get("access_token", ""),
             refresh_token=data.get("refresh_token"),
             expires_at=expires_at,
+            client_id=data.get("client_id"),
+            email=data.get("email"),
+            display_name=data.get("display_name"),
         )
 
     def is_expired(self, now: datetime | None = None) -> bool:
@@ -140,6 +155,17 @@ class OAuthCredential:
             return False
         check_time = now or datetime.now()
         return check_time >= self.expires_at
+
+    @property
+    def expires_timestamp_ms(self) -> int | None:
+        """获取过期时间戳（毫秒）。
+
+        Returns:
+            过期时间戳（毫秒），如果未设置过期时间则返回 None。
+        """
+        if self.expires_at is None:
+            return None
+        return int(self.expires_at.timestamp() * 1000)
 
 
 @dataclass

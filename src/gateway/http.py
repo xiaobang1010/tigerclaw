@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from loguru import logger
 
-from core.types.messages import ChatRequest, ChatResponse
 from core.types.sessions import Session, SessionCreateParams, SessionListParams
 from gateway.auth import (
     AuthMethod,
@@ -24,11 +23,21 @@ from gateway.methods.channels import (
     AddChannelAccountRequest,
     EnableChannelAccountRequest,
 )
+from gateway.openai_http import (
+    OpenAIChatCompletionRequest,
+    handle_openai_chat_completions,
+)
 from gateway.rate_limit import AuthRateLimiter, RateLimitConfig, create_auth_rate_limiter
+from sessions.manager import SessionManager
 
 router = APIRouter()
 
 security = HTTPBearer(auto_error=False)
+
+
+def get_session_manager(request: Request) -> SessionManager | None:
+    """获取会话管理器。"""
+    return getattr(request.app.state, "session_manager", None)
 
 
 def get_rate_limiter(request: Request) -> AuthRateLimiter | None:
@@ -144,23 +153,23 @@ async def api_health():
     return {"status": "ok"}
 
 
-@router.post("/chat/completions", response_model=ChatResponse)
-async def chat_completions(
+@router.post("/v1/chat/completions")
+async def openai_chat_completions(
     request: Request,
-    chat_request: ChatRequest,
+    chat_request: OpenAIChatCompletionRequest,
     user: dict[str, Any] = Depends(require_auth),
 ):
     """OpenAI 兼容的聊天补全 API。
 
     需要认证：Bearer Token 或基础认证。
+    支持流式和非流式响应。
     """
-    logger.info(f"聊天请求来自用户: {user.get('user', 'anonymous')}")
-
-    raise HTTPException(status_code=501, detail="聊天功能尚未实现")
+    return await handle_openai_chat_completions(request, chat_request, user)
 
 
 @router.post("/sessions", response_model=Session)
 async def create_session(
+    request: Request,
     params: SessionCreateParams,
     user: dict[str, Any] = Depends(require_auth),
 ):
@@ -170,11 +179,27 @@ async def create_session(
     """
     logger.info(f"创建会话请求来自用户: {user.get('user', 'anonymous')}")
 
-    raise HTTPException(status_code=501, detail="会话功能尚未实现")
+    session_manager = get_session_manager(request)
+    if not session_manager:
+        raise HTTPException(status_code=503, detail="会话管理器未初始化")
+
+    from gateway.methods.sessions import handle_sessions_create
+
+    result = await handle_sessions_create(
+        params=params.model_dump(),
+        user_info=user,
+        session_manager=session_manager,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result.get("session")
 
 
 @router.get("/sessions", response_model=list[Session])
 async def list_sessions(
+    request: Request,
     params: SessionListParams = None,
     user: dict[str, Any] = Depends(require_auth),
 ):
@@ -184,7 +209,22 @@ async def list_sessions(
     """
     logger.info(f"列出会话请求来自用户: {user.get('user', 'anonymous')}")
 
-    raise HTTPException(status_code=501, detail="会话功能尚未实现")
+    session_manager = get_session_manager(request)
+    if not session_manager:
+        raise HTTPException(status_code=503, detail="会话管理器未初始化")
+
+    from gateway.methods.sessions import handle_sessions_list
+
+    result = await handle_sessions_list(
+        params=params.model_dump() if params else {},
+        user_info=user,
+        session_manager=session_manager,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+
+    return result.get("sessions", [])
 
 
 @router.get("/models")

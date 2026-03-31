@@ -19,6 +19,7 @@ from gateway.http import router as api_router
 from gateway.middleware.security import create_security_middleware
 from gateway.tls import get_ssl_context, load_tls_context
 from gateway.websocket import websocket_endpoint
+from sessions.manager import SessionManager
 
 __version__ = "0.1.0"
 
@@ -89,6 +90,10 @@ async def lifespan(app: FastAPI):
 
     health_checker = HealthChecker(start_time=start_time)
     app.state.health_checker = health_checker
+
+    session_manager = SessionManager()
+    app.state.session_manager = session_manager
+    logger.info("会话管理器已初始化")
 
     config_reloader = ConfigReloader(
         config_path=loader.get_config_path(),
