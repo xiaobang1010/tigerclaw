@@ -27,12 +27,10 @@ class ProviderAuthMethod:
 
     id: str
     label: str
-    hint: str | None = None
     kind: ProviderAuthKind
+    hint: str | None = None
     run: Callable[..., Any] | None = None
     run_non_interactive: Callable[..., Any] | None = None
-
-
     wizard: dict[str, Any] | None = None
 
 
@@ -41,9 +39,9 @@ class ProviderCatalogContext:
     """Provider Catalog 上下文。"""
 
     config: dict[str, Any]
+    env: dict[str, str | None]
     agent_dir: str | None = None
     workspace_dir: str | None = None
-    env: dict[str, str | None]
 
 
 @dataclass
@@ -69,8 +67,8 @@ class ProviderPlugin:
     """Provider 插件定义。"""
 
     id: str
-    plugin_id: str | None = None
     label: str
+    plugin_id: str | None = None
     docs_path: str | None = None
     aliases: list[str] = field(default_factory=list)
     env_vars: list[str] = field(default_factory=list)
@@ -98,8 +96,6 @@ class ProviderPlugin:
     refresh_oauth: Callable[..., dict[str, Any]] | None = None
     build_auth_doctor_hint: Callable[..., str | None] | None = None
     on_model_selected: Callable[..., None] | None = None
-
-
     wizard: dict[str, Any] | None = None
 
 
@@ -136,16 +132,15 @@ class WebSearchProviderPlugin:
     id: str
     label: str
     hint: str
+    signup_url: str
     requires_credential: bool = False
     credential_label: str | None = None
     env_vars: list[str] = field(default_factory=list)
     placeholder: str = ""
-    signup_url: str
     docs_url: str | None = None
     auto_detect_order: int | None = None
     credential_path: str = ""
     inactive_secret_paths: list[str] = field(default_factory=list)
-
     get_credential_value: Callable[[dict[str, Any] | None], Any] | None = None
     set_credential_value: Callable[[dict[str, Any], Any], None] | None = None
     get_configured_credential_value: Callable[[dict[str, Any] | None], Any] | None = None
@@ -180,8 +175,8 @@ class PluginProviderRegistration:
     """Provider 注册信息。"""
 
     plugin_id: str
-    plugin_name: str | None = None
     provider: ProviderPlugin
+    plugin_name: str | None = None
     source: str = ""
     root_dir: str | None = None
 
@@ -191,8 +186,8 @@ class PluginSpeechProviderRegistration:
     """语音 Provider 注册信息。"""
 
     plugin_id: str
-    plugin_name: str | None = None
     provider: SpeechProviderPlugin
+    plugin_name: str | None = None
     source: str = ""
     root_dir: str | None = None
 
@@ -202,7 +197,7 @@ class PluginWebSearchProviderRegistration:
     """Web 搜索 Provider 注册信息。"""
 
     plugin_id: str
-    plugin_name: str | None = None
     provider: WebSearchProviderPlugin
+    plugin_name: str | None = None
     source: str = ""
     root_dir: str | None = None

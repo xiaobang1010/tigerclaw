@@ -3,8 +3,9 @@
 基于 OpenClaw 的 skills/types.ts 实现。
 """
 
+from collections.abc import Callable
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -145,9 +146,11 @@ class SkillEligibilityRemote(BaseModel):
     """Skill 资格检查的远程环境信息。"""
 
     platforms: list[str] = Field(default_factory=list, description="平台列表")
-    has_bin: Annotated[callable, Field(description="检查二进制文件是否存在的函数")] = lambda _: False
-    has_any_bin: Annotated[callable, Field(description="检查任一二进制文件是否存在的函数")] = lambda _: False
+    has_bin: Callable[[str], bool] = Field(default=lambda _: False, description="检查二进制文件是否存在的函数")
+    has_any_bin: Callable[[list[str]], bool] = Field(default=lambda _: False, description="检查任一二进制文件是否存在的函数")
     note: str | None = Field(None, description="备注信息")
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class SkillEligibilityContext(BaseModel):

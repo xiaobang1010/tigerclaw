@@ -582,3 +582,92 @@ PROMPT_INJECTION_HOOK_NAMES = (
 def is_prompt_injection_hook_name(hook_name: PluginHookName) -> bool:
     """检查是否为 Prompt 注入 Hook。"""
     return hook_name in PROMPT_INJECTION_HOOK_NAMES
+
+
+@dataclass
+class HookSystem:
+    """Hook 系统管理器。
+
+    管理所有 Hook 的注册和触发。
+    """
+
+    _hooks: dict[PluginHookName, list[PluginHookRegistration]] = field(
+        default_factory=dict
+    )
+
+    def register(
+        self,
+        hook_name: PluginHookName,
+        handler: PluginHookHandler,
+        plugin_id: str,
+        source: str = "",
+        priority: int = 0,
+    ) -> None:
+        """注册 Hook 处理器。
+
+        Args:
+            hook_name: Hook 名称
+            handler: 处理函数
+            plugin_id: 插件 ID
+            source: 来源
+            priority: 优先级
+        """
+        registration = PluginHookRegistration(
+            plugin_id=plugin_id,
+            hook_name=hook_name,
+            handler=handler,
+            priority=priority,
+            source=source,
+        )
+
+        if hook_name not in self._hooks:
+            self._hooks[hook_name] = []
+
+        self._hooks[hook_name].append(registration)
+        self._hooks[hook_name].sort(key=lambda r: r.priority, reverse=True)
+
+    def unregister(self, plugin_id: str) -> int:
+        """注销插件的所有 Hook。
+
+        Args:
+            plugin_id: 插件 ID
+
+        Returns:
+            注销的 Hook 数量
+        """
+        count = 0
+        for hook_name in list(self._hooks.keys()):
+            before = len(self._hooks[hook_name])
+            self._hooks[hook_name] = [
+                r for r in self._hooks[hook_name] if r.plugin_id != plugin_id
+            ]
+            count += before - len(self._hooks[hook_name])
+
+            if not self._hooks[hook_name]:
+                del self._hooks[hook_name]
+
+        return count
+
+    def get_handlers(
+        self, hook_name: PluginHookName
+    ) -> list[PluginHookRegistration]:
+        """获取 Hook 的所有处理器。
+
+        Args:
+            hook_name: Hook 名称
+
+        Returns:
+            处理器列表
+        """
+        return self._hooks.get(hook_name, [])
+
+    def has_handlers(self, hook_name: PluginHookName) -> bool:
+        """检查 Hook 是否有处理器。
+
+        Args:
+            hook_name: Hook 名称
+
+        Returns:
+            是否有处理器
+        """
+        return bool(self._hooks.get(hook_name))

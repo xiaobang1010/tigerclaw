@@ -15,6 +15,17 @@ import yaml
 from loguru import logger
 
 from core.types.config import TigerClawConfig
+from services.performance.cache import ConfigCache
+
+_config_cache: ConfigCache | None = None
+
+
+def get_config_cache() -> ConfigCache:
+    """获取配置缓存实例。"""
+    global _config_cache
+    if _config_cache is None:
+        _config_cache = ConfigCache(ttl=60.0)
+    return _config_cache
 
 
 class ConfigLoader:
@@ -22,16 +33,20 @@ class ConfigLoader:
 
     DEFAULT_CONFIG_NAME = "tigerclaw.yaml"
     ENV_PREFIX = "TIGERCLAW_"
+    CACHE_KEY = "main_config"
 
-    def __init__(self, config_path: Path | str | None = None):
+    def __init__(self, config_path: Path | str | None = None, cache_ttl: float = 60.0):
         """初始化配置加载器。
 
         Args:
             config_path: 配置文件路径，如果为 None 则使用默认路径。
+            cache_ttl: 缓存过期时间（秒）。
         """
         self.config_path = self._resolve_config_path(config_path)
         self._config: TigerClawConfig | None = None
         self._raw_config: dict[str, Any] = {}
+        self._cache = get_config_cache()
+        self._cache_ttl = cache_ttl
 
     def _resolve_config_path(self, config_path: Path | str | None) -> Path:
         """解析配置文件路径。"""
@@ -116,7 +131,9 @@ class ConfigLoader:
         return result
 
     def load(self, reload: bool = False) -> TigerClawConfig:
-        """加载配置。
+        """加载配置（同步版本，不使用缓存）。
+
+        保持向后兼容性。
 
         Args:
             reload: 是否强制重新加载。
@@ -127,18 +144,14 @@ class ConfigLoader:
         if self._config is not None and not reload:
             return self._config
 
-        # 加载 YAML 文件
         raw_config = self._load_yaml(self.config_path)
 
-        # 替换环境变量引用
         raw_config = self._substitute_env_vars(raw_config)
 
-        # 应用环境变量覆盖
         raw_config = self._apply_env_overrides(raw_config)
 
         self._raw_config = raw_config
 
-        # 创建配置对象
         try:
             self._config = TigerClawConfig(**raw_config)
             logger.info(f"配置加载成功: {self.config_path}")
@@ -147,6 +160,73 @@ class ConfigLoader:
             self._config = TigerClawConfig()
 
         return self._config
+
+    async def aload(self, reload: bool = False) -> TigerClawConfig:
+        """异步加载配置（带缓存）。
+
+        优先从缓存获取，缓存未命中时加载并缓存结果。
+
+        Args:
+            reload: 是否强制重新加载。
+
+        Returns:
+            加载的配置对象。
+        """
+        if self._config is not None and not reload:
+            return self._config
+
+        if not reload:
+            cached_config = await self._cache.get(self.CACHE_KEY)
+            if cached_config is not None:
+                self._config = cached_config
+                logger.debug("配置缓存命中")
+                return self._config
+
+        raw_config = self._load_config_data()
+
+        self._raw_config = raw_config
+
+        try:
+            self._config = TigerClawConfig(**raw_config)
+            logger.info(f"配置加载成功: {self.config_path}")
+        except Exception as e:
+            logger.warning(f"配置验证失败，使用默认配置: {e}")
+            self._config = TigerClawConfig()
+
+        await self._cache.set(self.CACHE_KEY, self._config, self._cache_ttl)
+        logger.debug(f"配置已缓存，TTL: {self._cache_ttl}s")
+
+        return self._config
+
+    def _load_config_data(self) -> dict[str, Any]:
+        """加载配置数据。
+
+        Returns:
+            原始配置字典。
+        """
+        raw_config = self._load_yaml(self.config_path)
+
+        raw_config = self._substitute_env_vars(raw_config)
+
+        raw_config = self._apply_env_overrides(raw_config)
+
+        return raw_config
+
+    async def invalidate_cache(self) -> bool:
+        """使配置缓存失效。
+
+        Returns:
+            是否成功失效。
+        """
+        return await self._cache.invalidate(self.CACHE_KEY)
+
+    async def clear_cache(self) -> int:
+        """清空所有配置缓存。
+
+        Returns:
+            清理的缓存条目数。
+        """
+        return await self._cache.clear()
 
     def get_raw(self) -> dict[str, Any]:
         """获取原始配置字典。"""
@@ -158,7 +238,7 @@ class ConfigLoader:
 
 
 def load_config(config_path: Path | str | None = None) -> TigerClawConfig:
-    """加载配置的便捷函数。
+    """加载配置的便捷函数（同步版本）。
 
     Args:
         config_path: 配置文件路径。
@@ -168,3 +248,26 @@ def load_config(config_path: Path | str | None = None) -> TigerClawConfig:
     """
     loader = ConfigLoader(config_path)
     return loader.load()
+
+
+async def aload_config(config_path: Path | str | None = None) -> TigerClawConfig:
+    """异步加载配置的便捷函数（带缓存）。
+
+    Args:
+        config_path: 配置文件路径。
+
+    Returns:
+        配置对象。
+    """
+    loader = ConfigLoader(config_path)
+    return await loader.aload()
+
+
+async def invalidate_config_cache() -> bool:
+    """使配置缓存失效的便捷函数。
+
+    Returns:
+        是否成功失效。
+    """
+    cache = get_config_cache()
+    return await cache.invalidate(ConfigLoader.CACHE_KEY)

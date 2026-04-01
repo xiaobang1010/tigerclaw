@@ -8,18 +8,32 @@ from typing import Any
 from loguru import logger
 
 from agents.providers.base import LLMProvider
+from services.performance.cache import ModelListCache
+
+_model_cache: ModelListCache | None = None
+
+
+def get_model_cache() -> ModelListCache:
+    """获取模型列表缓存实例。"""
+    global _model_cache
+    if _model_cache is None:
+        _model_cache = ModelListCache(ttl=300.0)
+    return _model_cache
 
 
 class ModelsMethod:
     """Models RPC 方法处理器。"""
 
-    def __init__(self, providers: dict[str, LLMProvider] | None = None):
+    def __init__(self, providers: dict[str, LLMProvider] | None = None, cache_ttl: float = 300.0):
         """初始化 Models 方法。
 
         Args:
             providers: LLM 提供商字典。
+            cache_ttl: 缓存过期时间（秒）。
         """
         self.providers = providers or {}
+        self._cache = get_model_cache()
+        self._cache_ttl = cache_ttl
 
     async def list(self, params: dict[str, Any], _user_info: dict[str, Any]) -> dict[str, Any]:
         """列出可用模型。
@@ -92,7 +106,37 @@ class ModelsMethod:
             return {"ok": False, "error": str(e)}
 
     async def _get_provider_models(self, provider_name: str) -> list[dict[str, Any]]:
-        """获取提供商的模型列表。"""
+        """获取提供商的模型列表。
+
+        优先从缓存获取，缓存未命中时加载并缓存结果。
+
+        Args:
+            provider_name: 提供商名称。
+
+        Returns:
+            模型列表。
+        """
+        cached_models = await self._cache.get(provider_name)
+        if cached_models is not None:
+            logger.debug(f"模型列表缓存命中: {provider_name}")
+            return cached_models
+
+        models = await self._load_provider_models(provider_name)
+
+        await self._cache.set(provider_name, models)
+        logger.debug(f"模型列表已缓存: {provider_name}, 数量: {len(models)}")
+
+        return models
+
+    async def _load_provider_models(self, provider_name: str) -> list[dict[str, Any]]:
+        """从数据源加载提供商的模型列表。
+
+        Args:
+            provider_name: 提供商名称。
+
+        Returns:
+            模型列表。
+        """
         default_models = {
             "openai": [
                 {"id": "gpt-4o", "name": "GPT-4o", "supports_vision": True},
@@ -151,6 +195,36 @@ class ModelsMethod:
             "gemini", "openrouter/auto",
         ]
         return any(vm in model_id.lower() for vm in vision_models)
+
+    async def invalidate_cache(self, provider_name: str | None = None) -> int:
+        """使缓存失效。
+
+        Args:
+            provider_name: 提供商名称，如果为 None 则清空所有缓存。
+
+        Returns:
+            清理的缓存条目数。
+        """
+        if provider_name:
+            success = await self._cache.invalidate(provider_name)
+            return 1 if success else 0
+        return await self._cache.clear()
+
+
+async def invalidate_model_cache(provider_name: str | None = None) -> int:
+    """使模型列表缓存失效的便捷函数。
+
+    Args:
+        provider_name: 提供商名称，如果为 None 则清空所有缓存。
+
+    Returns:
+        清理的缓存条目数。
+    """
+    cache = get_model_cache()
+    if provider_name:
+        success = await cache.invalidate(provider_name)
+        return 1 if success else 0
+    return await cache.clear()
 
 
 async def handle_models_list(

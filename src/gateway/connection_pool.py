@@ -22,6 +22,50 @@ class ConnectionInfo:
     user_info: dict[str, Any]
     connected_at: float = field(default_factory=time.time)
     last_activity: float = field(default_factory=time.time)
+    message_count: int = 0
+    error_count: int = 0
+    bytes_sent: int = 0
+    bytes_received: int = 0
+
+
+@dataclass
+class ConnectionPoolMetrics:
+    """连接池指标。"""
+
+    total_connections: int = 0
+    total_disconnections: int = 0
+    total_messages_sent: int = 0
+    total_messages_received: int = 0
+    total_errors: int = 0
+    total_timeouts: int = 0
+    total_bytes_sent: int = 0
+    total_bytes_received: int = 0
+    total_waiters_served: int = 0
+    total_waiters_timeout: int = 0
+    total_waiters_rejected: int = 0
+    current_waiters: int = 0
+    wait_time_sum: float = 0.0
+    wait_time_count: int = 0
+
+    def record_wait_time(self, wait_time: float) -> None:
+        """记录等待时间。"""
+        self.wait_time_sum += wait_time
+        self.wait_time_count += 1
+
+    def get_avg_wait_time(self) -> float | None:
+        """获取平均等待时间。"""
+        if self.wait_time_count == 0:
+            return None
+        return self.wait_time_sum / self.wait_time_count
+
+
+@dataclass
+class WaiterInfo:
+    """等待者信息。"""
+
+    event: asyncio.Event
+    created_at: float = field(default_factory=time.time)
+    timeout: float = 30.0
 
 
 class ConnectionPool:
@@ -34,20 +78,25 @@ class ConnectionPool:
         self,
         max_connections: int = 1000,
         idle_timeout_ms: float = 300000,
+        max_waiters: int = 50,
     ):
         """初始化连接池。
 
         Args:
             max_connections: 最大连接数，默认 1000。
             idle_timeout_ms: 空闲超时时间（毫秒），默认 300000（5分钟）。
+            max_waiters: 最大等待者数量，默认 50。
         """
         self._max_connections = max_connections
         self._idle_timeout_ms = idle_timeout_ms
+        self._max_waiters = max_waiters
         self._connections: dict[str, ConnectionInfo] = {}
         self._ws_to_id: dict[WebSocket, str] = {}
+        self._waiters: dict[str, WaiterInfo] = {}
         self._lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._running = False
+        self._metrics = ConnectionPoolMetrics()
 
     @property
     def max_connections(self) -> int:
@@ -63,6 +112,11 @@ class ConnectionPool:
     def connection_count(self) -> int:
         """获取当前连接数。"""
         return len(self._connections)
+
+    @property
+    def metrics(self) -> ConnectionPoolMetrics:
+        """获取连接池指标。"""
+        return self._metrics
 
     async def add(
         self,
@@ -82,6 +136,7 @@ class ConnectionPool:
         """
         async with self._lock:
             if len(self._connections) >= self._max_connections:
+                self._metrics.total_waiters_rejected += 1
                 logger.warning(
                     f"连接池已满，拒绝新连接: {conn_id}, "
                     f"当前连接数: {len(self._connections)}/{self._max_connections}"
@@ -99,6 +154,7 @@ class ConnectionPool:
             )
             self._connections[conn_id] = conn_info
             self._ws_to_id[ws] = conn_id
+            self._metrics.total_connections += 1
 
             logger.info(
                 f"WebSocket 连接建立: {conn_id}, "
@@ -119,6 +175,7 @@ class ConnectionPool:
             conn_info = self._connections.pop(conn_id, None)
             if conn_info:
                 self._ws_to_id.pop(conn_info.ws, None)
+                self._metrics.total_disconnections += 1
                 logger.info(
                     f"WebSocket 连接移除: {conn_id}, "
                     f"当前连接数: {len(self._connections)}"
@@ -200,8 +257,12 @@ class ConnectionPool:
             try:
                 await conn_info.ws.send_json(data)
                 success_count += 1
+                conn_info.message_count += 1
+                self._metrics.total_messages_sent += 1
             except Exception as e:
                 logger.debug(f"广播消息失败: {conn_id}, 错误: {e}")
+                conn_info.error_count += 1
+                self._metrics.total_errors += 1
                 disconnected.append(conn_id)
 
         for conn_id in disconnected:
@@ -226,11 +287,29 @@ class ConnectionPool:
         try:
             await conn_info.ws.send_json(data)
             conn_info.last_activity = time.time()
+            conn_info.message_count += 1
+            self._metrics.total_messages_sent += 1
             return True
         except Exception as e:
             logger.debug(f"发送消息失败: {conn_id}, 错误: {e}")
+            conn_info.error_count += 1
+            self._metrics.total_errors += 1
             await self.remove(conn_id)
             return False
+
+    async def record_received(self, conn_id: str, bytes_count: int = 0) -> None:
+        """记录接收消息。
+
+        Args:
+            conn_id: 连接唯一标识符。
+            bytes_count: 接收的字节数。
+        """
+        conn_info = self._connections.get(conn_id)
+        if conn_info:
+            conn_info.message_count += 1
+            conn_info.bytes_received += bytes_count
+            self._metrics.total_messages_received += 1
+            self._metrics.total_bytes_received += bytes_count
 
     async def start_heartbeat(self, interval_ms: float = 30000) -> None:
         """启动心跳检测任务。
@@ -314,6 +393,7 @@ class ConnectionPool:
                     f"连接超时，准备关闭: {conn_id}, "
                     f"空闲时间: {idle_time:.1f}s"
                 )
+                self._metrics.total_timeouts += 1
                 with contextlib.suppress(Exception):
                     await conn_info.ws.close(
                         code=1001,
@@ -397,6 +477,7 @@ class ConnectionPool:
                 "max_connections": self._max_connections,
                 "utilization": 0.0,
                 "idle_timeout_ms": self._idle_timeout_ms,
+                "metrics": self._get_metrics_dict(),
             }
 
         total_idle_time = sum(
@@ -422,6 +503,25 @@ class ConnectionPool:
             "avg_idle_time_sec": avg_idle_time,
             "oldest_connection_age_sec": current_time - oldest_connection.connected_at,
             "newest_connection_age_sec": current_time - newest_connection.connected_at,
+            "metrics": self._get_metrics_dict(),
+        }
+
+    def _get_metrics_dict(self) -> dict[str, Any]:
+        """获取指标字典。"""
+        return {
+            "total_connections": self._metrics.total_connections,
+            "total_disconnections": self._metrics.total_disconnections,
+            "total_messages_sent": self._metrics.total_messages_sent,
+            "total_messages_received": self._metrics.total_messages_received,
+            "total_errors": self._metrics.total_errors,
+            "total_timeouts": self._metrics.total_timeouts,
+            "total_bytes_sent": self._metrics.total_bytes_sent,
+            "total_bytes_received": self._metrics.total_bytes_received,
+            "current_waiters": self._metrics.current_waiters,
+            "total_waiters_served": self._metrics.total_waiters_served,
+            "total_waiters_timeout": self._metrics.total_waiters_timeout,
+            "total_waiters_rejected": self._metrics.total_waiters_rejected,
+            "avg_wait_time": self._metrics.get_avg_wait_time(),
         }
 
 
