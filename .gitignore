@@ -1,7 +1,19 @@
-tests/
-__pycache__
 .env
-*.env.local
-*.env.*.local
+*.pyc
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+.coverage
+htmlcov/
+*.lock
+
+context/
+docs/
+tests/
 
 AGENTS.md
+.trae/

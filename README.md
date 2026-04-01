@@ -1,343 +1,259 @@
 # TigerClaw
 
-TigerClaw 是一个基于 Python 的 **AI Agent Gateway**，用于把模型调用、会话管理、记忆、定时任务、密钥管理、浏览器自动化和渠道接入整合到统一的网关层中。
+TigerClaw 是 OpenClaw 的 Python 3.14 实现版本，目标是提供一个统一的 AI Agent 网关运行时，覆盖模型调用、会话管理、工具执行、自动化任务和多渠道接入。
 
-项目当前代码以 `FastAPI + Uvicorn + Typer` 为基础，提供：
+## 当前定位
 
-- HTTP API 与 WebSocket 接入
-- Agent 运行时与工具注册/执行
-- 多模型提供商适配层
-- Session / Memory / Cron / Secrets 等基础能力
-- Skills、Plugins、Browser、Daemon 等扩展模块
-- 一套覆盖日常运维和调试的 CLI
+TigerClaw 当前是一个单仓库、单进程优先、按子系统划分职责的 Python 系统。对外主入口有两类：
+
+- `tigerclaw gateway start`：启动 FastAPI Gateway，提供 HTTP / WebSocket 接口
+- `tigerclaw ...`：执行配置、诊断、模型、会话、审批、浏览器等 CLI 管理命令
 
 ## 核心能力
 
-- **网关层**：统一承载 HTTP、WebSocket、健康检查和会话入口
-- **Agent 运行时**：负责上下文构建、模型调用、工具执行和结果流式返回
-- **模型提供商**：内置 `openai`、`anthropic`、`minimax`、`openrouter`、`custom`
-- **会话管理**：支持 Session 创建、消息追加、会话查询与清理
-- **记忆系统**：支持记忆写入、检索与语义搜索
-- **定时任务**：支持 Cron 任务的增删查和调度运行
-- **密钥管理**：支持密钥存储、读取、删除和审计相关能力
-- **浏览器自动化**：支持打开页面、截图和导出 PDF
-- **插件与技能**：支持扩展工具、通道、Provider 和自定义技能
+- Gateway 接入层：FastAPI、HTTP、WebSocket、健康检查、TLS、认证、限流
+- Agent Runtime：上下文管理、工具调用、超时控制、重试、模型降级
+- 会话服务：会话创建、恢复、归档、消息持久化、Token 统计
+- 自动化服务：`at` / `every` / `cron` 调度、任务执行、失败告警、结果投递
+- 记忆服务：基础记忆读写与上下文拼装，预留 embedding / vector / sqlite 扩展
+- 扩展机制：Skill、Plugin、Channel 三条扩展线并存
+- 多渠道能力：飞书、Slack、Discord、Telegram
 
-## 架构概览
+## 架构总览
 
 ```mermaid
-graph TB
-    subgraph "接入层"
-        HTTP["HTTP API"]
-        WS["WebSocket"]
-        CH["Channels"]
-    end
+flowchart LR
+    Client["CLI / HTTP / WebSocket / 渠道回调"] --> Gateway["Gateway"]
 
-    subgraph "Gateway"
-        GW["GatewayServer"]
-        SM["SessionManager"]
-    end
+    Gateway --> Session["Session Service"]
+    Gateway --> Agent["Agent Runtime"]
+    Gateway --> Memory["Memory Service"]
+    Gateway --> Cron["Automation Service"]
+    Gateway --> Ext["Skill / Plugin / Channel"]
 
-    subgraph "Runtime"
-        AR["AgentRuntime"]
-        TOOLS["ToolRegistry / ToolExecutor"]
-        CTX["ContextManager"]
-    end
-
-    subgraph "扩展能力"
-        PROVIDERS["Providers"]
-        MEMORY["Memory"]
-        SKILLS["Skills"]
-        PLUGINS["Plugins"]
-        SECRETS["Secrets"]
-        CRON["Cron"]
-        BROWSER["Browser"]
-    end
-
-    HTTP --> GW
-    WS --> GW
-    CH --> GW
-    GW --> SM
-    GW --> AR
-    AR --> CTX
-    AR --> TOOLS
-    AR --> PROVIDERS
-    AR --> MEMORY
-    AR --> SKILLS
-    AR --> PLUGINS
-    AR --> SECRETS
-    CRON --> GW
-    BROWSER --> AR
+    Agent --> Provider["OpenAI / Anthropic / OpenRouter / ACP"]
+    Agent --> Tools["Tool Registry / Executor"]
+    Session --> Store["Memory / SQLite"]
+    Cron --> Delivery["Delivery / Session Executor"]
 ```
 
-## 目录结构
+更完整的服务架构说明见 [context/tech/services/README.md](context/tech/services/README.md)。
 
-```text
-.
-├── src/tigerclaw/
-│   ├── agents/      # Agent 运行时、上下文、工具、模型目录
-│   ├── browser/     # 浏览器自动化
-│   ├── channels/    # 渠道接入
-│   ├── cli/         # Typer CLI
-│   ├── config/      # 配置加载与热重载
-│   ├── cron/        # 定时任务
-│   ├── daemon/      # 守护进程管理
-│   ├── gateway/     # HTTP / WebSocket / Session
-│   ├── memory/      # 记忆管理与检索
-│   ├── plugins/     # 插件系统
-│   ├── providers/   # 模型提供商适配
-│   ├── secrets/     # 密钥管理
-│   └── skills/      # 技能系统
-├── context/         # 架构、业务、经验文档
-├── config.yaml      # 仓库内示例配置
-├── example.env      # 环境变量示例
-└── pyproject.toml
-```
+## 业务主线
+
+### 会话与聊天
+
+1. 请求进入 Gateway
+2. 通过认证与限流
+3. 创建或恢复会话
+4. 调用 Agent Runtime
+5. 写回消息、统计和交付上下文
+
+### 自动化任务
+
+1. 任务按 `at`、`every`、`cron` 规则调度
+2. 处理器执行任务
+3. 成功结果可投递到渠道或 webhook
+4. 失败时可按失败目标发送告警
+
+### 渠道管理
+
+1. 读取渠道配置
+2. 判断启用状态和配置完整性
+3. 维护多账户配置
+4. 在后续交付场景中复用账户上下文
+
+更完整的业务流程、规则和状态机见 [context/business/README.md](context/business/README.md)。
 
 ## 环境要求
 
-- Python `>= 3.13`
+- Python >= 3.14
 - `uv`
-- 如需使用浏览器功能，首次运行前建议安装 Playwright 浏览器
+
+## 安装
+
+```bash
+git clone https://github.com/openclaw/tigerclaw.git
+cd tigerclaw
+
+uv venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/macOS
+
+uv pip install -e ".[dev]"
+
+# 按需安装可选能力
+uv pip install -e ".[openai,anthropic,openrouter,feishu]"
+```
 
 ## 快速开始
 
-### 1. 创建虚拟环境
+### 1. 初始化配置
 
 ```bash
-uv venv
+tigerclaw config init
 ```
 
-Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-macOS / Linux:
+### 2. 启动 Gateway
 
 ```bash
-source .venv/bin/activate
+tigerclaw gateway start
+
+# 指定地址和端口
+tigerclaw gateway start --bind 127.0.0.1 --port 18789
 ```
 
-### 2. 安装依赖
+### 3. 查看诊断信息
 
 ```bash
-uv pip install -e ".[dev]"
+tigerclaw doctor info
+tigerclaw doctor check
 ```
 
-如果只需要运行，不做开发：
+### 4. 常用管理命令
 
 ```bash
-uv pip install -e .
+tigerclaw config list
+tigerclaw models --help
+tigerclaw sessions --help
+tigerclaw approvals --help
+tigerclaw browser --help
 ```
 
-### 3. 配置环境变量
-
-仓库已提供 `example.env`，可复制为 `.env` 后填写密钥：
-
-```bash
-cp example.env .env
-```
-
-当前仓库示例配置使用的是自定义 OpenAI 兼容网关，因此至少需要配置：
-
-```env
-CUSTOM_API_KEY=your-api-key
-```
-
-### 4. 检查配置文件
-
-仓库根目录已带有 `config.yaml`，默认内容类似：
+## 配置示例
 
 ```yaml
 gateway:
-  host: "0.0.0.0"
-  port: 3000
-  bind: "loopback"
-
-model:
-  default_model: "glm-5"
-  providers:
-    custom:
-      base_url: "https://your-openai-compatible-endpoint/v1"
-      api_key: "${CUSTOM_API_KEY}"
-      models:
-        - "glm-5"
-```
-
-建议优先使用 `config.yaml` 或 `config.yml`。
-
-### 5. 启动网关
-
-```bash
-uv run tigerclaw gateway start
-```
-
-如果直接使用仓库自带的 `config.yaml`，服务通常会监听在 `3000` 端口。
-
-### 6. 验证服务
-
-```bash
-curl http://127.0.0.1:3000/health
-```
-
-也可以先做一次环境诊断：
-
-```bash
-uv run tigerclaw doctor run
-```
-
-## 配置说明
-
-TigerClaw 的配置来源主要有三类：
-
-1. 环境变量，例如 `TIGERCLAW_*`
-2. 当前目录或用户目录下的 YAML 配置文件
-3. 代码默认值
-
-推荐把业务配置放在 `config.yaml`，把密钥放在 `.env`。
-
-### 常见配置项
-
-```yaml
-gateway:
-  host: "127.0.0.1"
+  bind: loopback
   port: 18789
-  bind: "loopback"  # auto / lan / loopback / custom / tailnet
+  auth:
+    mode: token
+    token: ${TIGERCLAW_GATEWAY_TOKEN}
+    rate_limit:
+      max_attempts: 5
+      window_ms: 60000
+      lockout_ms: 300000
 
-model:
-  default_model: "gpt-4o-mini"
-  providers:
-    openai:
-      base_url: "https://api.openai.com/v1"
-      api_key: "${OPENAI_API_KEY}"
-      models:
-        - "gpt-4o-mini"
-        - "gpt-4.1"
+logging:
+  level: INFO
+  file_enabled: false
 
-channel:
-  enabled_channels:
-    - "feishu"
+channels:
+  feishu:
+    enabled: false
+  slack:
+    enabled: false
 ```
 
-### 环境变量占位
+更详细的配置结构见 [src/core/types/config.py](src/core/types/config.py)。
 
-配置文件支持：
+## 接口示例
 
-- `${VAR_NAME}`
-- `${VAR_NAME:-default}`
-
-例如：
-
-```yaml
-api_key: "${OPENAI_API_KEY}"
-base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
-```
-
-## HTTP API 与 WebSocket
-
-### HTTP 端点
-
-- `GET /`：基础健康检查
-- `GET /health`：健康检查
-- `POST /sessions`：创建会话
-- `GET /sessions`：列出会话
-- `GET /sessions/{session_id}`：查询会话
-- `DELETE /sessions/{session_id}`：结束会话
-- `POST /sessions/{session_id}/messages`：向会话追加消息
-- `GET /sessions/{session_id}/messages`：列出会话消息
-
-### WebSocket 端点
-
-- `GET /ws`
-- `GET /ws/{session_id}`
-
-建立连接后，服务端会先返回一条 `connected` 消息。
-
-## 常用 CLI
-
-TigerClaw 的 CLI 入口为 `tigerclaw`，常见命令如下：
-
-| 命令组 | 常用命令 | 说明 |
-|--------|----------|------|
-| `gateway` | `start` / `status` | 启动网关、查看网关配置 |
-| `agent` | `chat` / `tools` | 与 Agent 对话、查看工具 |
-| `config` | `list` / `get` / `set` / `reload` | 查看与调整配置 |
-| `cron` | `list` / `add` / `remove` / `start` | 管理定时任务 |
-| `daemon` | `list` / `start` / `stop` / `status` | 管理守护进程 |
-| `memory` | `add` / `search` / `list` / `clear` | 管理记忆数据 |
-| `browser` | `open` / `screenshot` / `pdf` | 浏览器自动化 |
-| `secrets` | `list` / `get` / `set` / `delete` | 管理密钥 |
-| `skills` | `list` / `run` / `info` | 管理技能 |
-| `doctor` | `run` | 运行系统诊断 |
-| `status` | `show` | 查看整体服务状态 |
-| `models` | `list` / `info` | 查看模型目录 |
-| `plugins` | `list` / `info` / `enable` / `disable` | 管理插件 |
-| `sessions` | `list` / `info` / `kill` | 管理会话 |
-
-示例：
+### 健康检查
 
 ```bash
-uv run tigerclaw gateway status
-uv run tigerclaw agent tools
-uv run tigerclaw agent chat "你好"
-uv run tigerclaw models list
-uv run tigerclaw status show
+curl http://127.0.0.1:18789/health
+curl http://127.0.0.1:18789/health/live
+curl http://127.0.0.1:18789/health/ready
 ```
 
-## 浏览器能力
+### HTTP API
 
-如需使用 `browser` 命令，建议先安装浏览器运行时：
+当前代码中的 OpenAI 兼容聊天路径为：
 
 ```bash
-uv run playwright install chromium
+POST /api/v1/v1/chat/completions
 ```
 
 示例：
 
 ```bash
-uv run tigerclaw browser open https://example.com
-uv run tigerclaw browser screenshot https://example.com
-uv run tigerclaw browser pdf https://example.com
+curl -X POST http://127.0.0.1:18789/api/v1/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [{"role": "user", "content": "你好"}]
+  }'
 ```
 
-## 开发说明
+其他常见 HTTP 路径：
 
-### 安装开发依赖
+- `GET /api/v1/auth/status`
+- `POST /api/v1/sessions`
+- `GET /api/v1/sessions`
+- `GET /api/v1/models`
+- `GET /api/v1/channels`
+
+### WebSocket RPC
+
+```javascript
+const ws = new WebSocket("ws://127.0.0.1:18789/ws?token=YOUR_TOKEN");
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    id: "1",
+    method: "chat",
+    params: {
+      message: "你好",
+      stream: true
+    }
+  }));
+};
+```
+
+常见 RPC 方法：
+
+- `chat`
+- `sessions.create`
+- `sessions.resume`
+- `sessions.archive`
+- `sessions.list`
+- `config.get`
+- `config.reload`
+- `models.list`
+- `tools.execute`
+- `exec.approvals.*`
+
+## 项目结构
+
+```text
+tigerclaw/
+├── src/
+│   ├── agents/          # Agent Runtime
+│   ├── browser/         # 浏览器 / CDP 能力
+│   ├── channels/        # 渠道注册表与适配器
+│   ├── cli/             # CLI 命令
+│   ├── core/            # 配置、日志、类型
+│   ├── gateway/         # Gateway 服务
+│   ├── infra/           # 配对、审批、远程交互
+│   ├── plugins/         # 插件系统
+│   ├── security/        # 安全模块
+│   ├── services/        # cron / memory / performance / skills
+│   └── sessions/        # 会话管理与存储
+├── extensions/          # 扩展样例
+├── tests/               # 测试
+└── context/
+    ├── tech/services/   # 服务架构文档
+    └── business/        # 业务逻辑文档
+```
+
+## 开发
 
 ```bash
-uv pip install -e ".[dev]"
+uv run pytest
+uv run ruff check src tests
+uv run ruff format src tests
+uv run pyright
 ```
 
-### 代码检查
+## 当前实现说明
 
-```bash
-uv run ruff check src
-```
+- Gateway 启动时会挂载会话、记忆、Cron、健康检查等子系统，是当前运行时编排中心。
+- 记忆服务默认是基础内存实现，增强版 embedding / vector / sqlite 能力仍在逐步接入。
+- 渠道管理当前更偏配置驱动的内置渠道管理，不是完全动态插件发现。
+- WebSocket RPC 与 HTTP 路径的依赖注入还没有完全统一，属于后续可继续收敛的实现细节。
 
-### 版本信息
+## 许可证
 
-- 当前版本：`0.1.0`
-- 打包入口：`tigerclaw = tigerclaw.cli:app`
-
-## 文档导航
-
-项目把背景知识放在 `context/` 目录下：
-
-- `context/tech/services/README.md`：服务架构概览
-- `context/tech/services/service-list.md`：服务清单
-- `context/business/README.md`：业务逻辑概览
-- `context/business/glossary.md`：术语表
-
-按领域继续细看时，可从这些目录进入：
-
-- `context/business/domains/agent/`
-- `context/business/domains/session/`
-- `context/business/domains/memory/`
-- `context/business/domains/cron/`
-- `context/business/domains/secrets/`
-
-## License
-
-本项目使用 `MIT` License，详见 `LICENSE`。
+MIT License
