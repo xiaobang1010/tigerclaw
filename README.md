@@ -1,151 +1,89 @@
 # TigerClaw
 
-**TigerClaw** 是 OpenClaw 的 Python 3.14 实现版本，旨在完全实现或绝大部分实现 TypeScript 版本的主要功能。这是一个 AI Agent 网关服务，提供统一的 LLM 调用接口、会话管理、工具执行和多渠道接入能力。
+TigerClaw 是 OpenClaw 的 Python 3.14 实现版本，目标是提供一个统一的 AI Agent 网关运行时，覆盖模型调用、会话管理、工具执行、自动化任务和多渠道接入。
 
-## 特性
+## 当前定位
 
-- 🚀 **Gateway 服务**: WebSocket + HTTP 双协议支持，OpenAI 兼容 API
-- 🤖 **Agent Runtime**: 多模型支持（OpenAI、Anthropic、OpenRouter）
-- 🔄 **故障转移**: 自动重试、认证轮换、模型降级
-- 💾 **会话管理**: 完整的会话生命周期管理，支持内存/SQLite 存储
-- 🔌 **插件系统**: 灵活的插件架构，支持热重载和动态扩展
-- 🔐 **多认证方式**: Token、密码、Tailscale、可信代理
-- 💬 **多渠道支持**: 飞书、Slack、Discord、Telegram
-- ⚡ **异步架构**: 基于 FastAPI 和 asyncio
+TigerClaw 当前是一个单仓库、单进程优先、按子系统划分职责的 Python 系统。对外主入口有两类：
 
-## 系统架构
+- `tigerclaw gateway start`：启动 FastAPI Gateway，提供 HTTP / WebSocket 接口
+- `tigerclaw ...`：执行配置、诊断、模型、会话、审批、浏览器等 CLI 管理命令
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              客户端层                                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │
-│  │    CLI      │  │  WebSocket  │  │  HTTP API   │  │  渠道客户端      │  │
-│  │  (Typer)    │  │  (ws://)    │  │  (REST)     │  │ (飞书/Slack等)  │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └────────┬────────┘  │
-└─────────┼────────────────┼────────────────┼──────────────────┼───────────┘
-          │                │                │                  │
-          └────────────────┴────────────────┴──────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Gateway 服务层                                  │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      FastAPI Application                          │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  │   │
-│  │  │ HTTP Router│  │ WebSocket  │  │   认证      │  │  速率限制  │  │   │
-│  │  │ (/api/v1)  │  │ Endpoint   │  │  (多种模式) │  │  (防暴力)  │  │   │
-│  │  └────────────┘  └────────────┘  └────────────┘  └────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      RPC Handler                                  │   │
-│  │  chat | sessions.* | config.* | models.* | tools.* | channels.*  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Agent Runtime 层                               │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      AgentRunner                                  │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  │   │
-│  │  │   Context  │  │  Failover  │  │   Tools    │  │   Usage    │  │   │
-│  │  │  Manager   │  │  (重试/降级)│  │  Executor  │  │   Stats    │  │   │
-│  │  └────────────┘  └────────────┘  └────────────┘  └────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      LLM Providers                                │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  │   │
-│  │  │   OpenAI   │  │ Anthropic  │  │OpenRouter  │  │   ACP      │  │   │
-│  │  └────────────┘  └────────────┘  └────────────┘  └────────────┘  │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           数据与存储层                                    │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐              │
-│  │ Session Store  │  │ Memory Service │  │  Task Store    │              │
-│  │ (SQLite/内存)  │  │ (向量存储)     │  │  (定时任务)    │              │
-│  └────────────────┘  └────────────────┘  └────────────────┘              │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           渠道与插件层                                    │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐              │
-│  │ Channel Plugin │  │ Provider Plugin│  │   Tool Plugin  │              │
-│  │   (飞书等)     │  │   (LLM扩展)    │  │   (工具扩展)   │              │
-│  └────────────────┘  └────────────────┘  └────────────────┘              │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                      Plugin System                                │   │
-│  │  Discovery | Loader | Registry | Lifecycle | Hot Reload          │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
+## 核心能力
+
+- Gateway 接入层：FastAPI、HTTP、WebSocket、健康检查、TLS、认证、限流
+- Agent Runtime：上下文管理、工具调用、超时控制、重试、模型降级
+- 会话服务：会话创建、恢复、归档、消息持久化、Token 统计
+- 自动化服务：`at` / `every` / `cron` 调度、任务执行、失败告警、结果投递
+- 记忆服务：基础记忆读写与上下文拼装，预留 embedding / vector / sqlite 扩展
+- 扩展机制：Skill、Plugin、Channel 三条扩展线并存
+- 多渠道能力：飞书、Slack、Discord、Telegram
+
+## 架构总览
+
+```mermaid
+flowchart LR
+    Client["CLI / HTTP / WebSocket / 渠道回调"] --> Gateway["Gateway"]
+
+    Gateway --> Session["Session Service"]
+    Gateway --> Agent["Agent Runtime"]
+    Gateway --> Memory["Memory Service"]
+    Gateway --> Cron["Automation Service"]
+    Gateway --> Ext["Skill / Plugin / Channel"]
+
+    Agent --> Provider["OpenAI / Anthropic / OpenRouter / ACP"]
+    Agent --> Tools["Tool Registry / Executor"]
+    Session --> Store["Memory / SQLite"]
+    Cron --> Delivery["Delivery / Session Executor"]
 ```
 
-## 核心业务流程
+更完整的服务架构说明见 [context/tech/services/README.md](context/tech/services/README.md)。
 
-### 会话生命周期
+## 业务主线
 
-```
-┌─────────┐         ┌─────────┐         ┌──────────┐
-│ CREATED │ ───────▶│  IDLE   │ ───────▶│  ACTIVE  │
-└─────────┘         └─────────┘         └──────────┘
-                          │                   │
-                          │                   │ process
-                          │                   ▼
-                          │              ┌───────────┐
-                          │              │PROCESSING │
-                          │              └───────────┘
-                          │                   │
-                          └───────────────────┤
-                                              ▼
-                                        ┌──────────┐
-                                        │ ARCHIVED │
-                                        └──────────┘
-```
+### 会话与聊天
 
-### 消息处理流程
+1. 请求进入 Gateway
+2. 通过认证与限流
+3. 创建或恢复会话
+4. 调用 Agent Runtime
+5. 写回消息、统计和交付上下文
 
-```
-用户消息 → 认证验证 → 会话获取/创建 → 上下文构建 → LLM调用 → 响应生成 → 消息持久化
-                │                              │
-                └── 认证失败 → 拒绝请求         └── 工具调用 → 工具执行 → 结果返回
-```
+### 自动化任务
 
-### 故障转移策略
+1. 任务按 `at`、`every`、`cron` 规则调度
+2. 处理器执行任务
+3. 成功结果可投递到渠道或 webhook
+4. 失败时可按失败目标发送告警
 
-| 错误类型 | 策略 | 说明 |
-|----------|------|------|
-| RATE_LIMIT | AUTH_ROTATE | 轮换认证配置 |
-| AUTH_ERROR | AUTH_ROTATE | 轮换认证配置 |
-| MODEL_NOT_FOUND | MODEL_FALLBACK | 降级到备用模型 |
-| TIMEOUT | RETRY | 等待后重试 |
-| CONTEXT_TOO_LONG | ABORT | 中止请求 |
+### 渠道管理
+
+1. 读取渠道配置
+2. 判断启用状态和配置完整性
+3. 维护多账户配置
+4. 在后续交付场景中复用账户上下文
+
+更完整的业务流程、规则和状态机见 [context/business/README.md](context/business/README.md)。
 
 ## 环境要求
 
 - Python >= 3.14
-- uv 包管理器
+- `uv`
 
 ## 安装
 
-使用 uv 进行包管理：
-
 ```bash
-# 克隆仓库
 git clone https://github.com/openclaw/tigerclaw.git
 cd tigerclaw
 
-# 创建虚拟环境并安装依赖
 uv venv
 .venv\Scripts\activate  # Windows
 # source .venv/bin/activate  # Linux/macOS
 
 uv pip install -e ".[dev]"
 
-# 安装可选依赖
-uv pip install -e ".[openai,anthropic,feishu]"
+# 按需安装可选能力
+uv pip install -e ".[openai,anthropic,openrouter,feishu]"
 ```
 
 ## 快速开始
@@ -153,137 +91,84 @@ uv pip install -e ".[openai,anthropic,feishu]"
 ### 1. 初始化配置
 
 ```bash
-# 创建配置文件
 tigerclaw config init
-
-# 或手动创建 tigerclaw.yaml
 ```
 
 ### 2. 启动 Gateway
 
 ```bash
-# 启动服务
 tigerclaw gateway start
 
-# 指定端口
-tigerclaw gateway start --port 8080
+# 指定地址和端口
+tigerclaw gateway start --bind 127.0.0.1 --port 18789
 ```
 
-### 3. 与 Agent 聊天
+### 3. 查看诊断信息
 
 ```bash
-# 命令行聊天
-tigerclaw agent chat "你好，请介绍一下你自己"
-
-# 指定模型
-tigerclaw agent chat --model claude-3-5-sonnet "写一首诗"
-```
-
-### 4. 系统诊断
-
-```bash
-# 查看系统信息
 tigerclaw doctor info
-
-# 运行诊断检查
 tigerclaw doctor check
 ```
 
-## 项目结构
+### 4. 常用管理命令
 
-```
-tigerclaw/
-├── src/
-│   ├── core/           # 核心模块
-│   │   ├── config/     # 配置加载与热重载
-│   │   ├── logging/    # 日志系统
-│   │   └── types/      # 类型定义
-│   ├── gateway/        # Gateway 服务
-│   │   ├── server.py   # FastAPI 应用
-│   │   ├── http.py     # HTTP 路由
-│   │   ├── websocket.py# WebSocket 端点
-│   │   └── auth.py     # 认证处理
-│   ├── agents/         # Agent Runtime
-│   │   ├── runner.py   # 运行器
-│   │   ├── failover.py # 故障转移
-│   │   ├── providers/  # LLM 提供商
-│   │   └── tools/      # 工具系统
-│   ├── channels/       # 渠道系统
-│   │   ├── registry.py # 渠道注册表
-│   │   └── adapters/   # 渠道适配器
-│   ├── sessions/       # 会话管理
-│   │   ├── manager.py  # 会话管理器
-│   │   └── store.py    # 会话存储
-│   ├── plugins/        # 插件系统
-│   │   ├── loader.py   # 插件加载
-│   │   └── registry.py # 插件注册
-│   ├── services/       # 后台服务
-│   │   ├── cron/       # 定时任务
-│   │   └── memory/     # 向量存储
-│   └── cli/            # 命令行接口
-├── extensions/         # 扩展插件
-│   └── feishu/         # 飞书渠道
-├── tests/              # 测试
-└── context/            # 文档
-    ├── tech/services/  # 服务架构文档
-    └── business/       # 业务逻辑文档
+```bash
+tigerclaw config list
+tigerclaw models --help
+tigerclaw sessions --help
+tigerclaw approvals --help
+tigerclaw browser --help
 ```
 
-## 配置
-
-创建 `tigerclaw.yaml` 配置文件：
+## 配置示例
 
 ```yaml
-# Gateway 配置
 gateway:
-  host: "0.0.0.0"
-  port: 18789
   bind: loopback
+  port: 18789
   auth:
-    mode: token  # none, token, password, tailscale, trustedProxy
+    mode: token
     token: ${TIGERCLAW_GATEWAY_TOKEN}
     rate_limit:
       max_attempts: 5
       window_ms: 60000
       lockout_ms: 300000
 
-# 日志配置
 logging:
   level: INFO
-  file_enabled: true
-  file_path: logs/tigerclaw.log
+  file_enabled: false
 
-# 模型配置
-models:
-  default: gpt-4
-  models:
-    - id: gpt-4
-      provider: openai
-    - id: claude-3-5-sonnet
-      provider: anthropic
-
-# 渠道配置
 channels:
   feishu:
-    enabled: true
-    app_id: ${FEISHU_APP_ID}
-    app_secret: ${FEISHU_APP_SECRET}
+    enabled: false
+  slack:
+    enabled: false
 ```
 
-## API 使用
+更详细的配置结构见 [src/core/types/config.py](src/core/types/config.py)。
+
+## 接口示例
+
+### 健康检查
+
+```bash
+curl http://127.0.0.1:18789/health
+curl http://127.0.0.1:18789/health/live
+curl http://127.0.0.1:18789/health/ready
+```
 
 ### HTTP API
 
+当前代码中的 OpenAI 兼容聊天路径为：
+
 ```bash
-# 健康检查
-curl http://localhost:18789/health
+POST /api/v1/v1/chat/completions
+```
 
-# 认证状态
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  http://localhost:18789/api/v1/auth/status
+示例：
 
-# 聊天补全
-curl -X POST http://localhost:18789/api/v1/chat/completions \
+```bash
+curl -X POST http://127.0.0.1:18789/api/v1/v1/chat/completions \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -292,50 +177,82 @@ curl -X POST http://localhost:18789/api/v1/chat/completions \
   }'
 ```
 
-### WebSocket
+其他常见 HTTP 路径：
+
+- `GET /api/v1/auth/status`
+- `POST /api/v1/sessions`
+- `GET /api/v1/sessions`
+- `GET /api/v1/models`
+- `GET /api/v1/channels`
+
+### WebSocket RPC
 
 ```javascript
-const ws = new WebSocket('ws://localhost:18789/ws?token=YOUR_TOKEN');
+const ws = new WebSocket("ws://127.0.0.1:18789/ws?token=YOUR_TOKEN");
 
 ws.onopen = () => {
   ws.send(JSON.stringify({
-    id: '1',
-    method: 'chat',
+    id: "1",
+    method: "chat",
     params: {
-      message: '你好',
+      message: "你好",
       stream: true
     }
   }));
 };
+```
 
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log(data);
-};
+常见 RPC 方法：
+
+- `chat`
+- `sessions.create`
+- `sessions.resume`
+- `sessions.archive`
+- `sessions.list`
+- `config.get`
+- `config.reload`
+- `models.list`
+- `tools.execute`
+- `exec.approvals.*`
+
+## 项目结构
+
+```text
+tigerclaw/
+├── src/
+│   ├── agents/          # Agent Runtime
+│   ├── browser/         # 浏览器 / CDP 能力
+│   ├── channels/        # 渠道注册表与适配器
+│   ├── cli/             # CLI 命令
+│   ├── core/            # 配置、日志、类型
+│   ├── gateway/         # Gateway 服务
+│   ├── infra/           # 配对、审批、远程交互
+│   ├── plugins/         # 插件系统
+│   ├── security/        # 安全模块
+│   ├── services/        # cron / memory / performance / skills
+│   └── sessions/        # 会话管理与存储
+├── extensions/          # 扩展样例
+├── tests/               # 测试
+└── context/
+    ├── tech/services/   # 服务架构文档
+    └── business/        # 业务逻辑文档
 ```
 
 ## 开发
 
 ```bash
-# 运行测试
 uv run pytest
-
-# 代码检查
 uv run ruff check src tests
-
-# 代码格式化
 uv run ruff format src tests
-
-# 类型检查
 uv run pyright
 ```
 
-## 文档
+## 当前实现说明
 
-- [服务架构文档](context/tech/services/README.md) - 详细的模块说明和 API 端点
-- [业务逻辑文档](context/business/README.md) - 业务流程、规则和状态机定义
-- [API 文档](docs/api.md) - API 接口详细说明
-- [使用指南](docs/guide.md) - 完整使用教程
+- Gateway 启动时会挂载会话、记忆、Cron、健康检查等子系统，是当前运行时编排中心。
+- 记忆服务默认是基础内存实现，增强版 embedding / vector / sqlite 能力仍在逐步接入。
+- 渠道管理当前更偏配置驱动的内置渠道管理，不是完全动态插件发现。
+- WebSocket RPC 与 HTTP 路径的依赖注入还没有完全统一，属于后续可继续收敛的实现细节。
 
 ## 许可证
 
