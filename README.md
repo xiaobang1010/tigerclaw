@@ -37,8 +37,6 @@ flowchart LR
     Cron --> Delivery["Delivery / Session Executor"]
 ```
 
-更完整的服务架构说明见 [context/tech/services/README.md](context/tech/services/README.md)。
-
 ## 业务主线
 
 ### 会话与聊天
@@ -62,8 +60,6 @@ flowchart LR
 2. 判断启用状态和配置完整性
 3. 维护多账户配置
 4. 在后续交付场景中复用账户上下文
-
-更完整的业务流程、规则和状态机见 [context/business/README.md](context/business/README.md)。
 
 ## 环境要求
 
