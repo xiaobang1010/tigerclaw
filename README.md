@@ -220,22 +220,40 @@ ws.onopen = () => {
 ```text
 tigerclaw/
 ├── src/
-│   ├── agents/          # Agent Runtime
+│   ├── agents/          # Agent Runtime（故障转移、模型降级、工具执行）
+│   │   ├── acp/         #   Agent Communication Protocol 客户端
+│   │   ├── auth_profiles/ # 认证配置档案管理
+│   │   ├── plugins/     #   Provider 工厂与注册表
+│   │   ├── providers/   #   LLM Provider（OpenAI / Anthropic / OpenRouter / Codex）
+│   │   └── tools/       #   工具执行（bash、权限控制）
+│   ├── auto_reply/      # 自动回复引擎（分块、模板、命令）
 │   ├── browser/         # 浏览器 / CDP 能力
 │   ├── channels/        # 渠道注册表与适配器
-│   ├── cli/             # CLI 命令
-│   ├── core/            # 配置、日志、类型
-│   ├── gateway/         # Gateway 服务
-│   ├── infra/           # 配对、审批、远程交互
-│   ├── plugins/         # 插件系统
-│   ├── security/        # 安全模块
-│   ├── services/        # cron / memory / performance / skills
-│   └── sessions/        # 会话管理与存储
+│   │   ├── adapters/    #   通用适配器（命令/配置/生命周期/安全/流式）
+│   │   └── feishu/      #   飞书渠道实现
+│   ├── cli/             # CLI 命令（Typer + Rich）
+│   │   └── commands/    #   子命令（gateway/config/doctor/sessions/models 等）
+│   ├── core/            # 核心基础设施
+│   │   ├── config/      #   配置加载/热重载/快照
+│   │   ├── logging/     #   日志/审计/指标/脱敏
+│   │   └── types/       #   全局类型定义（Pydantic 模型）
+│   ├── daemon/          # 守护进程管理（systemd / launchd / schtasks）
+│   ├── gateway/         # Gateway 服务（FastAPI）
+│   │   ├── methods/     #   RPC 方法处理器
+│   │   └── middleware/  #   中间件（安全/计时）
+│   ├── infra/           # 基础设施（配对、审批、消息投递）
+│   │   └── outbound/    #   消息投递（队列/媒体/载荷）
+│   ├── plugins/         # 插件系统（注册表/钩子/加载器/热重载/沙箱）
+│   ├── security/        # 安全模块（运行时安全/密钥管理）
+│   ├── services/        # 业务服务
+│   │   ├── cron/        #   定时任务（at / every / cron）
+│   │   ├── memory/      #   记忆服务（内存/文件/SQLite/向量）
+│   │   ├── performance/ #   性能优化（缓存/连接池/异步优化器）
+│   │   └── skills/      #   技能系统
+│   └── sessions/        # 会话管理（内存缓存 + SQLite 持久化）
 ├── extensions/          # 扩展样例
-├── tests/               # 测试
-└── context/
-    ├── tech/services/   # 服务架构文档
-    └── business/        # 业务逻辑文档
+└── tests/               # 测试
+
 ```
 
 ## 开发
