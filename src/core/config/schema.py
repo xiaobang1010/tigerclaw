@@ -96,9 +96,10 @@ class ConfigSchema(BaseModel):
     agents: dict[str, Any] = Field(default_factory=dict, description="代理配置")
     logging: dict[str, Any] = Field(default_factory=dict, description="日志配置")
     plugins: dict[str, PluginConfigSchema] = Field(default_factory=dict, description="插件配置")
+    storage: dict[str, Any] = Field(default_factory=dict, description="存储配置")
     custom: dict[str, Any] = Field(default_factory=dict, description="自定义配置")
 
-    @field_validator("gateway", "models", "channels", "agents", "logging", mode="before")
+    @field_validator("gateway", "models", "channels", "agents", "logging", "storage", mode="before")
     @classmethod
     def ensure_dict(cls, v: Any) -> dict[str, Any]:
         """确保字段是字典类型。"""

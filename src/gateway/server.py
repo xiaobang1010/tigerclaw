@@ -5,6 +5,7 @@
 
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +37,7 @@ from services.cron.scheduler import get_scheduler_v2
 from services.memory.service import get_memory_service
 from services.performance.async_optimizer import AsyncOptimizer, ConcurrencyConfig
 from sessions.manager import SessionManager
+from sessions.store import SessionStore
 
 __version__ = "0.1.0"
 
@@ -157,9 +159,14 @@ async def lifespan(app: FastAPI):
     health_checker = HealthChecker(start_time=start_time)
     app.state.health_checker = health_checker
 
-    session_manager = SessionManager()
+    storage_config = getattr(config, "storage", {}) or {}
+    data_dir = Path(storage_config.get("data_dir", "data"))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    session_db_path = data_dir / storage_config.get("session_db_path", "sessions.db")
+    store = SessionStore(db_path=str(session_db_path))
+    session_manager = SessionManager(store=store)
     app.state.session_manager = session_manager
-    logger.info("会话管理器已初始化")
+    logger.info(f"会话管理器已初始化，存储路径: {session_db_path}")
 
     config_reloader = ConfigReloader(
         config_path=loader.get_config_path(),
@@ -218,6 +225,10 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("TigerClaw Gateway 关闭中...")
+
+    if hasattr(session_manager, "store") and session_manager.store:
+        await session_manager.store.close()
+        logger.info("会话存储已关闭")
 
     await graceful_shutdown.execute_shutdown()
 
