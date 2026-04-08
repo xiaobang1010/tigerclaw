@@ -153,7 +153,7 @@ async def api_health():
     return {"status": "ok"}
 
 
-@router.post("/v1/chat/completions")
+@router.post("/chat/completions")
 async def openai_chat_completions(
     request: Request,
     chat_request: OpenAIChatCompletionRequest,

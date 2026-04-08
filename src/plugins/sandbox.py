@@ -4,7 +4,7 @@
 """
 
 import asyncio
-import resource
+import os
 import threading
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -12,6 +12,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
+
+_IS_POSIX = os.name != "nt"
+
+if _IS_POSIX:
+    import resource
+else:
+    resource = None
 
 
 @dataclass
@@ -63,6 +70,8 @@ class PluginSandbox:
 
     def _set_resource_limits(self) -> None:
         """设置资源限制。"""
+        if not _IS_POSIX:
+            return
         try:
             max_memory = self.config.max_memory_mb * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (max_memory, max_memory))
@@ -79,7 +88,7 @@ class PluginSandbox:
         original_limits = None
 
         try:
-            if threading.current_thread() is threading.main_thread():
+            if _IS_POSIX and threading.current_thread() is threading.main_thread():
                 original_limits = {
                     "as": resource.getrlimit(resource.RLIMIT_AS),
                     "cpu": resource.getrlimit(resource.RLIMIT_CPU),
@@ -92,7 +101,7 @@ class PluginSandbox:
 
         finally:
             self._active = False
-            if original_limits and threading.current_thread() is threading.main_thread():
+            if original_limits and _IS_POSIX and threading.current_thread() is threading.main_thread():
                 try:
                     for resource_type, limits in original_limits.items():
                         resource.setrlimit(getattr(resource, f"RLIMIT_{resource_type.upper()}"), limits)
@@ -205,6 +214,8 @@ class PluginSandbox:
 
     def _get_resource_usage(self) -> dict[str, Any]:
         """获取资源使用情况。"""
+        if not _IS_POSIX:
+            return {}
         try:
             usage = resource.getrusage(resource.RUSAGE_SELF)
             return {

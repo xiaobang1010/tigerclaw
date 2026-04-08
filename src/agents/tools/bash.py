@@ -11,6 +11,8 @@ from typing import Any
 
 from loguru import logger
 
+from agents.tools.permission import PermissionManager
+
 
 @dataclass
 class BashToolConfig:
@@ -56,16 +58,18 @@ class BashToolExecutor:
         "mv /* /dev/null",
     ]
 
-    def __init__(self, config: BashToolConfig | None = None):
+    def __init__(self, config: BashToolConfig | None = None, permission_manager: PermissionManager | None = None):
         """初始化 Bash 工具执行器。
 
         Args:
             config: 工具配置。
+            permission_manager: 权限管理器（可选）。
         """
         self.config = config or BashToolConfig()
         self._blocked_commands = set(
             self.config.blocked_commands or self.DEFAULT_BLOCKED_COMMANDS
         )
+        self._permission_manager = permission_manager
 
     async def execute(
         self,
@@ -88,6 +92,19 @@ class BashToolExecutor:
         timeout = timeout or self.config.timeout
         working_directory = working_directory or self.config.working_directory
         env = {**os.environ, **(self.config.env or {}), **(env or {})}
+
+        if self._permission_manager:
+            allowed, reason = self._permission_manager.check_permission("bash")
+            if not allowed:
+                logger.warning(f"命令执行被权限管理器拒绝: {reason}")
+                return BashToolResult(
+                    success=False,
+                    exit_code=-1,
+                    stdout="",
+                    stderr=f"权限不足: {reason}",
+                    command=command,
+                )
+            logger.info(f"命令执行审计: command={command!r}, approved={reason}")
 
         if not self._is_command_allowed(command):
             logger.warning(f"命令被阻止: {command}")
@@ -213,6 +230,7 @@ async def execute_bash(
     working_directory: str | None = None,
     env: dict[str, str] | None = None,
     config: BashToolConfig | None = None,
+    permission_manager: PermissionManager | None = None,
 ) -> BashToolResult:
     """执行 Bash 命令的便捷函数。
 
@@ -222,11 +240,12 @@ async def execute_bash(
         working_directory: 工作目录。
         env: 环境变量。
         config: 工具配置。
+        permission_manager: 权限管理器（可选）。
 
     Returns:
         执行结果。
     """
-    executor = BashToolExecutor(config)
+    executor = BashToolExecutor(config, permission_manager=permission_manager)
     return await executor.execute(
         command=command,
         timeout=timeout,
