@@ -121,3 +121,7 @@ class ToolValidationError(Exception):
         self.tool_name = tool_name
         self.errors = errors
         super().__init__(f"Tool '{tool_name}' validation failed: {errors}")
+
+
+# 安全上下文类型从 security_gateway 模块延迟导入
+# 使用时: from agents.tools.security_gateway import ToolSecurityContext

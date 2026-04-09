@@ -28,6 +28,10 @@ from agents.plugins import ProviderFactory, get_provider_factory
 from agents.providers.base import LLMProvider
 from agents.timeout import resolve_agent_timeout_ms, with_timeout
 from agents.tool_registry import ToolExecutor, ToolRegistry
+from agents.tools.security_gateway import (
+    ToolSecurityContext,
+    UnifiedSecurityGateway,
+)
 from agents.usage import (
     NormalizedUsage,
     UsageSnapshot,
@@ -132,6 +136,7 @@ class AgentRunner:
         self._auth_store: AuthProfileStore = AuthProfileStore()
         self._alias_index: ModelAliasIndex = ModelAliasIndex()
         self._model_ref: ModelRef | None = None
+        self._security_gateway = UnifiedSecurityGateway()
 
     def set_auth_profiles(self, profiles: list[dict[str, Any]]) -> None:
         """设置认证配置列表。"""
@@ -454,7 +459,11 @@ class AgentRunner:
         )
 
     async def _handle_tool_calls(self, message: Message) -> None:
-        """处理工具调用。"""
+        """处理工具调用。
+
+        在执行工具前通过安全网关检查，拒绝或需要审批的调用
+        会被记录并跳过。
+        """
         if not message.tool_calls:
             return
 
@@ -472,6 +481,42 @@ class AgentRunner:
                 except json.JSONDecodeError:
                     arguments = {}
 
+            # 创建安全上下文
+            context = ToolSecurityContext(
+                agent_id=getattr(self.config, "agent_id", "default"),
+            )
+
+            # 安全检查
+            check_result = await self._security_gateway.check(
+                tool_name, arguments, context
+            )
+            if not check_result.allowed and not check_result.requires_approval:
+                logger.warning(
+                    f"工具调用被安全网关拒绝: {tool_name}, 原因: {check_result.reason}"
+                )
+                self.context.add_message(
+                    Message(
+                        role="tool",
+                        content=f"安全拒绝: {check_result.reason}",
+                        tool_call_id=tool_call.get("id"),
+                    )
+                )
+                continue
+
+            if check_result.requires_approval:
+                logger.info(
+                    f"工具调用需要审批: {tool_name}, 原因: {check_result.reason}"
+                )
+                self.context.add_message(
+                    Message(
+                        role="tool",
+                        content=f"需要审批: {check_result.reason}",
+                        tool_call_id=tool_call.get("id"),
+                    )
+                )
+                continue
+
+            # 通过安全检查，执行工具
             logger.info(f"执行工具: {tool_name}")
 
             try:

@@ -1,23 +1,17 @@
 # TigerClaw
 
-TigerClaw 是 OpenClaw 的 Python 3.14 实现版本，目标是提供一个统一的 AI Agent 网关运行时，覆盖模型调用、会话管理、工具执行、自动化任务和多渠道接入。
-
-## 当前定位
-
-TigerClaw 当前是一个单仓库、单进程优先、按子系统划分职责的 Python 系统。对外主入口有两类：
-
-- `tigerclaw gateway start`：启动 FastAPI Gateway，提供 HTTP / WebSocket 接口
-- `tigerclaw ...`：执行配置、诊断、模型、会话、审批、浏览器等 CLI 管理命令
+TigerClaw 是一个统一的 AI Agent 网关运行时，覆盖模型调用、会话管理、工具执行、自动化任务和多渠道接入。
 
 ## 核心能力
 
-- Gateway 接入层：FastAPI、HTTP、WebSocket、健康检查、TLS、认证、限流
-- Agent Runtime：上下文管理、工具调用、超时控制、重试、模型降级
-- 会话服务：会话创建、恢复、归档、消息持久化、Token 统计
-- 自动化服务：`at` / `every` / `cron` 调度、任务执行、失败告警、结果投递
-- 记忆服务：基础记忆读写与上下文拼装，预留 embedding / vector / sqlite 扩展
-- 扩展机制：Skill、Plugin、Channel 三条扩展线并存
-- 多渠道能力：飞书、Slack、Discord、Telegram
+- **Gateway 接入层**：FastAPI、HTTP、WebSocket、健康检查、TLS、认证、限流
+- **Agent Runtime**：上下文管理、工具调用、超时控制、重试、模型降级
+- **安全体系**：统一安全网关、文件访问守卫、网络请求守卫、命令分析器、Windows 沙箱支持
+- **会话服务**：会话创建、恢复、归档、消息持久化、Token 统计
+- **自动化服务**：`at` / `every` / `cron` 调度、任务执行、失败告警、结果投递
+- **记忆服务**：基础记忆读写与上下文拼装，支持 embedding / vector / sqlite 扩展
+- **扩展机制**：Skill、Plugin、Channel 三条扩展线并存
+- **多渠道能力**：飞书
 
 ## 架构总览
 
@@ -33,6 +27,7 @@ flowchart LR
 
     Agent --> Provider["OpenAI / Anthropic / OpenRouter / ACP"]
     Agent --> Tools["Tool Registry / Executor"]
+    Agent --> Security["Security Gateway"]
     Session --> Store["Memory / SQLite"]
     Cron --> Delivery["Delivery / Session Executor"]
 ```
@@ -44,7 +39,7 @@ flowchart LR
 1. 请求进入 Gateway
 2. 通过认证与限流
 3. 创建或恢复会话
-4. 调用 Agent Runtime
+4. 调用 Agent Runtime（通过安全网关）
 5. 写回消息、统计和交付上下文
 
 ### 自动化任务
@@ -137,11 +132,45 @@ logging:
 channels:
   feishu:
     enabled: false
-  slack:
-    enabled: false
 ```
 
 更详细的配置结构见 [src/core/types/config.py](src/core/types/config.py)。
+
+## 安全体系
+
+TigerClaw 内置了统一的安全体系，保护大模型的工具调用：
+
+### 统一安全网关
+
+所有工具调用（bash、file_read、file_write、http_request）都通过 `UnifiedSecurityGateway` 进行安全检查：
+
+```
+请求 → 权限检查 → 工具分派守卫 → 审计日志
+```
+
+### 文件访问守卫
+
+- 默认敏感路径保护：`.env`、`*.pem`、`*.key`、`.ssh/*`、`.aws/*` 等
+- 敏感路径读取需要审批
+- 支持自定义敏感路径模式
+
+### 网络请求守卫
+
+- 默认白名单：OpenAI、Anthropic、PyPI、GitHub 等常用 API 站点
+- SSRF 防护：内网地址默认阻止
+- 白名单外的 URL 需要审批
+
+### 命令分析器
+
+- 危险命令检测：`rm -rf /`、`mkfs`、`curl | sh` 等
+- 编码绕过检测：base64、hex、octal 编码后的危险命令识别
+- 四级安全评级：safe → warning → danger → critical
+- critical 级别直接阻止，danger 级别需要审批
+
+### Windows 沙箱
+
+- 通过 Job Object 限制内存、CPU 时间和进程数
+- 与 POSIX 平台的资源限制等价
 
 ## 接口示例
 
@@ -154,8 +183,6 @@ curl http://127.0.0.1:18789/health/ready
 ```
 
 ### HTTP API
-
-当前代码中的 OpenAI 兼容聊天路径为：
 
 ```bash
 POST /api/v1/v1/chat/completions
@@ -221,7 +248,7 @@ tigerclaw/
 │   │   ├── auth_profiles/ # 认证配置档案管理
 │   │   ├── plugins/     #   Provider 工厂与注册表
 │   │   ├── providers/   #   LLM Provider（OpenAI / Anthropic / OpenRouter / Codex）
-│   │   └── tools/       #   工具执行（bash、权限控制）
+│   │   └── tools/       #   工具执行（bash、权限控制、安全网关）
 │   ├── auto_reply/      # 自动回复引擎（分块、模板、命令）
 │   ├── browser/         # 浏览器 / CDP 能力
 │   ├── channels/        # 渠道注册表与适配器
@@ -247,9 +274,7 @@ tigerclaw/
 │   │   ├── performance/ #   性能优化（缓存/连接池/异步优化器）
 │   │   └── skills/      #   技能系统
 │   └── sessions/        # 会话管理（内存缓存 + SQLite 持久化）
-├── extensions/          # 扩展样例
 └── tests/               # 测试
-
 ```
 
 ## 开发

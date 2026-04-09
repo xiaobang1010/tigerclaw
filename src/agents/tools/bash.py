@@ -11,6 +11,7 @@ from typing import Any
 
 from loguru import logger
 
+from agents.tools.command_analyzer import CommandAnalysis, CommandAnalyzer, CommandThreatLevel
 from agents.tools.permission import PermissionManager
 
 
@@ -70,6 +71,7 @@ class BashToolExecutor:
             self.config.blocked_commands or self.DEFAULT_BLOCKED_COMMANDS
         )
         self._permission_manager = permission_manager
+        self._command_analyzer = CommandAnalyzer()
 
     async def execute(
         self,
@@ -186,12 +188,25 @@ class BashToolExecutor:
     def _is_command_allowed(self, command: str) -> bool:
         """检查命令是否被允许执行。
 
+        先用增强分析器检查 CRITICAL 级别威胁，
+        再用原有黑名单检查，最后检查 allowed_commands。
+
         Args:
             command: 要检查的命令。
 
         Returns:
             如果命令被允许返回 True。
         """
+        # 先用增强分析器检查
+        analysis = self._command_analyzer.analyze(command)
+        if analysis.threat_level == CommandThreatLevel.CRITICAL:
+            logger.warning(
+                f"命令被增强分析器阻止 (critical): {command}, "
+                f"匹配: {analysis.patterns_matched}"
+            )
+            return False
+
+        # 再用原有黑名单检查
         command_lower = command.lower().strip()
 
         for blocked in self._blocked_commands:
@@ -222,6 +237,17 @@ class BashToolExecutor:
             return False, f"命令被阻止: {command}"
 
         return True, "命令有效"
+
+    def get_command_analysis(self, command: str) -> CommandAnalysis:
+        """获取命令的安全分析结果。
+
+        Args:
+            command: 要分析的命令。
+
+        Returns:
+            CommandAnalysis 分析结果。
+        """
+        return self._command_analyzer.analyze(command)
 
 
 async def execute_bash(
