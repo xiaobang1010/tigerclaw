@@ -5,6 +5,7 @@
 
 import asyncio
 import os
+import subprocess
 import threading
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -19,6 +20,66 @@ if _IS_POSIX:
     import resource
 else:
     resource = None
+
+if os.name == "nt":
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+
+    JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000200
+    JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000002
+    JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
+    JOB_OBJECT_TERMINATE_AT_END_OF_JOB = 0x00200000
+    JobObjectExtendedLimitInformation = 9
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.SetInformationJobObject.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+    ]
+    kernel32.SetInformationJobObject.restype = ctypes.c_int
+    kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.TerminateJobObject.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
 
 
 @dataclass
@@ -53,6 +114,103 @@ class SandboxResult:
     memory_exceeded: bool = False
 
 
+if os.name == "nt":
+
+    class WindowsJobObjectSandbox:
+        """Windows Job Object 沙箱。
+
+        利用 Windows Job Object 实现进程级别的资源限制。
+        """
+
+        def __init__(self, config: SandboxConfig):
+            self.config = config
+            self._job_handle: int | None = None
+
+        @property
+        def max_memory_bytes(self) -> int:
+            return self.config.max_memory_mb * 1024 * 1024
+
+        @property
+        def timeout_seconds(self) -> int:
+            return self.config.max_cpu_seconds
+
+        @property
+        def max_processes(self) -> int:
+            return self.config.max_threads
+
+        def _create_job_object(self) -> int | None:
+            """创建 Job Object 并设置资源限制，返回句柄。"""
+            job_handle = kernel32.CreateJobObjectW(None, None)
+            if not job_handle:
+                logger.warning(f"CreateJobObjectW 失败: {ctypes.get_last_error()}")
+                return None
+
+            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            ctypes.memset(ctypes.byref(info), 0, ctypes.sizeof(info))
+
+            limit_flags = (
+                JOB_OBJECT_LIMIT_PROCESS_MEMORY
+                | JOB_OBJECT_LIMIT_PROCESS_TIME
+                | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+                | JOB_OBJECT_TERMINATE_AT_END_OF_JOB
+            )
+
+            info.BasicLimitInformation.LimitFlags = limit_flags
+            # CPU 时间限制：秒转为 100ns 单位
+            info.BasicLimitInformation.PerProcessUserTimeLimit = (
+                self.timeout_seconds * 10_000_000
+            )
+            info.ProcessMemoryLimit = self.max_memory_bytes
+            info.BasicLimitInformation.ActiveProcessLimit = self.max_processes
+
+            result = kernel32.SetInformationJobObject(
+                job_handle,
+                JobObjectExtendedLimitInformation,
+                ctypes.byref(info),
+                ctypes.sizeof(info),
+            )
+            if not result:
+                logger.warning(f"SetInformationJobObject 失败: {ctypes.get_last_error()}")
+                kernel32.CloseHandle(job_handle)
+                return None
+
+            return job_handle
+
+        def assign_process(self, process: subprocess.Popen) -> bool:
+            """将子进程分配到 Job Object。
+
+            Args:
+                process: 子进程实例。
+
+            Returns:
+                是否成功分配。
+            """
+            if self._job_handle is None:
+                self._job_handle = self._create_job_object()
+                if self._job_handle is None:
+                    return False
+
+            process_handle = process._handle  # noqa: SLF001
+            result = kernel32.AssignProcessToJobObject(self._job_handle, process_handle)
+            if not result:
+                logger.warning(
+                    f"AssignProcessToJobObject 失败: {ctypes.get_last_error()}"
+                )
+                return False
+            return True
+
+        def terminate(self):
+            """终止 Job Object 中所有进程。"""
+            if self._job_handle:
+                kernel32.TerminateJobObject(self._job_handle, 1)
+
+        def __del__(self):
+            """关闭 Job Object 句柄。"""
+            if self._job_handle:
+                kernel32.CloseHandle(self._job_handle)
+                self._job_handle = None
+
+
 class PluginSandbox:
     """插件沙箱。
 
@@ -67,6 +225,13 @@ class PluginSandbox:
         """
         self.config = config or SandboxConfig()
         self._active = False
+        self._win_job_sandbox: WindowsJobObjectSandbox | None = None
+        if os.name == "nt":
+            try:
+                self._win_job_sandbox = WindowsJobObjectSandbox(self.config)
+            except Exception as e:
+                logger.warning(f"Windows Job Object 初始化失败，回退到 asyncio 超时: {e}")
+                self._win_job_sandbox = None
 
     def _set_resource_limits(self) -> None:
         """设置资源限制。"""
@@ -148,6 +313,70 @@ class PluginSandbox:
             return False, f"路径 {path} 不在允许列表中"
 
         return True, "文件系统访问允许"
+
+    async def _execute_code(
+        self,
+        code: str,
+        timeout: float | None = None,
+    ) -> SandboxResult:
+        """在子进程中执行代码，Windows 上使用 Job Object 限制资源。
+
+        Args:
+            code: 要执行的 Python 代码。
+            timeout: 超时时间（秒）。
+
+        Returns:
+            执行结果。
+        """
+        timeout = timeout or self.config.max_cpu_seconds
+        use_job_object = os.name == "nt" and self._win_job_sandbox is not None
+
+        try:
+            process = subprocess.Popen(
+                ["python", "-c", code],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            if use_job_object:
+                assigned = self._win_job_sandbox.assign_process(process)  # type: ignore[union-attr]
+                if not assigned:
+                    logger.warning("Windows Job Object 分配进程失败，回退到 asyncio 超时限制")
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(None, process.communicate),
+                    timeout=timeout,
+                )
+            except TimeoutError:
+                if use_job_object:
+                    self._win_job_sandbox.terminate()  # type: ignore[union-attr]
+                else:
+                    process.kill()
+                return SandboxResult(
+                    success=False,
+                    error=f"执行超时 ({timeout}秒)",
+                    timed_out=True,
+                )
+
+            if process.returncode != 0:
+                return SandboxResult(
+                    success=False,
+                    error=stderr.decode(errors="replace"),
+                )
+
+            return SandboxResult(
+                success=True,
+                result=stdout.decode(errors="replace"),
+                resource_usage=self._get_resource_usage(),
+            )
+
+        except Exception as e:
+            logger.error(f"沙箱子进程执行错误: {e}")
+            return SandboxResult(
+                success=False,
+                error=str(e),
+            )
 
     async def execute(
         self,

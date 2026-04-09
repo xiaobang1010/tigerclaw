@@ -285,3 +285,23 @@ def create_default_permission_manager() -> PermissionManager:
     manager = PermissionManager()
     manager.register_permissions(DEFAULT_TOOL_PERMISSIONS)
     return manager
+
+
+# 新增文件和网络权限
+EXTENDED_TOOL_PERMISSIONS = [
+    ToolPermission(
+        tool_name="file_read",
+        required_level=PermissionLevel.READ,
+        require_approval=False,
+    ),
+    ToolPermission(
+        tool_name="file_write",
+        required_level=PermissionLevel.WRITE,
+        require_approval=True,
+    ),
+    ToolPermission(
+        tool_name="http_request",
+        required_level=PermissionLevel.EXECUTE,
+        require_approval=False,
+    ),
+]
