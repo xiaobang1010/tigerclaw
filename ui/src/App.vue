@@ -1,10 +1,15 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { sendChatRequest, handleStreamResponse } from './services/api'
 
 // 状态管理
 const showConfig = ref(false)
 const showModelConfig = ref(false)
 const activeNav = ref('chat')
+const inputMessage = ref('')
+const messages = ref([])
+const isLoading = ref(false)
+const errorMessage = ref('')
 
 // 导航菜单
 const navItems = [
@@ -40,6 +45,70 @@ const closeConfig = () => {
   showConfig.value = false
   showModelConfig.value = false
 }
+
+// 发送消息
+const sendMessage = async () => {
+  if (!inputMessage.value.trim()) return
+  
+  const userMessage = inputMessage.value.trim()
+  messages.value.push({
+    role: 'user',
+    content: userMessage
+  })
+  
+  inputMessage.value = ''
+  isLoading.value = true
+  errorMessage.value = ''
+  
+  try {
+    const response = await sendChatRequest([
+      { role: 'user', content: userMessage }
+    ])
+    
+    const assistantMessageId = Date.now()
+    messages.value.push({
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      reasoning: ''
+    })
+    
+    handleStreamResponse(response, (chunk, type) => {
+      const assistantMessage = messages.value.find(msg => msg.id === assistantMessageId)
+      if (assistantMessage) {
+        if (type === 'reasoning') {
+          assistantMessage.reasoning += chunk
+        } else {
+          assistantMessage.content += chunk
+        }
+      }
+    }, (error) => {
+      errorMessage.value = '发生错误，请稍后重试'
+      console.error('Error handling stream:', error)
+    })
+  } catch (error) {
+    errorMessage.value = '发送消息失败，请检查配置'
+    console.error('Error sending message:', error)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// 处理键盘事件
+const handleKeyPress = (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    sendMessage()
+  }
+}
+
+// 初始化
+onMounted(() => {
+  // 检查配置是否存在
+  if (!import.meta.env.VITE_OPENAI_API_KEY) {
+    errorMessage.value = '请在.env.local文件中配置API密钥'
+  }
+})
 </script>
 
 <template>
@@ -90,7 +159,7 @@ const closeConfig = () => {
       
       <!-- 内容区域 -->
       <div class="content-area">
-        <div class="welcome-section">
+        <div v-if="messages.length === 0" class="welcome-section">
           <div class="agent-item">
             <div class="agent-icon">
               <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=fierce%20and%20elegant%20tiger%20claw%20logo%2C%20red%20and%20black%20color%20scheme%2C%20minimalist%20design%2C%20professional%2C%20suitable%20for%20AI%20assistant%20app&image_size=square" alt="TigerClaw" />
@@ -106,12 +175,49 @@ const closeConfig = () => {
             <p>随时随地，帮您高效干活</p>
           </div>
         </div>
+        
+        <div v-else class="chat-messages">
+          <div 
+            v-for="(message, index) in messages" 
+            :key="index"
+            class="message"
+            :class="message.role"
+          >
+            <div class="message-content">
+              <div v-if="message.role === 'user'" class="user-message">
+                {{ message.content }}
+              </div>
+              <div v-else class="assistant-message">
+                <div v-if="message.reasoning" class="reasoning">
+                  {{ message.reasoning }}
+                </div>
+                <div v-if="message.content" class="answer">
+                  {{ message.content }}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div v-if="isLoading" class="loading-indicator">
+            <div class="loading-spinner"></div>
+            <span>正在思考...</span>
+          </div>
+          
+          <div v-if="errorMessage" class="error-message">
+            {{ errorMessage }}
+          </div>
+        </div>
       </div>
       
       <!-- 底部输入框 -->
       <div class="input-area">
         <div class="input-box">
-          <input type="text" placeholder="可以描述任务或提问任何问题" />
+          <input 
+            type="text" 
+            v-model="inputMessage"
+            placeholder="可以描述任务或提问任何问题"
+            @keypress="handleKeyPress"
+          />
         </div>
         <div class="input-options">
           <div class="option-item" @click="openModelConfig">
@@ -130,7 +236,7 @@ const closeConfig = () => {
             <span>📎</span>
           </div>
         </div>
-        <div class="send-btn">
+        <div class="send-btn" @click="sendMessage" :disabled="isLoading">
           <span>▶</span>
         </div>
       </div>
@@ -144,7 +250,9 @@ const closeConfig = () => {
           <button class="close-btn" @click="closeConfig">×</button>
         </div>
         <div class="config-content">
-          <p>配置界面内容</p>
+          <h3>API配置</h3>
+          <p>请在.env.local文件中配置以下信息：</p>
+          <pre>VITE_OPENAI_BASE_URL=https://api-inference.modelscope.cn/v1<br>VITE_OPENAI_API_KEY=&lt;MODELSCOPE_TOKEN&gt;<br>VITE_OPENAI_MODEL=ZhipuAI/GLM-5</pre>
         </div>
       </div>
     </div>
@@ -157,7 +265,10 @@ const closeConfig = () => {
           <button class="close-btn" @click="closeConfig">×</button>
         </div>
         <div class="config-content">
-          <p>大模型配置内容</p>
+          <h3>当前配置</h3>
+          <p>模型：{{ import.meta.env.VITE_OPENAI_MODEL || '未配置' }}</p>
+          <p>API地址：{{ import.meta.env.VITE_OPENAI_BASE_URL || '未配置' }}</p>
+          <p>API密钥：{{ import.meta.env.VITE_OPENAI_API_KEY ? '已配置' : '未配置' }}</p>
         </div>
       </div>
     </div>
@@ -614,6 +725,96 @@ const closeConfig = () => {
   padding: 32px 24px;
 }
 
+/* 聊天消息样式 */
+.chat-messages {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.message {
+  display: flex;
+  margin-bottom: 16px;
+}
+
+.message.user {
+  justify-content: flex-end;
+}
+
+.message.assistant {
+  justify-content: flex-start;
+}
+
+.message-content {
+  max-width: 70%;
+  padding: 12px 16px;
+  border-radius: 16px;
+  line-height: 1.4;
+}
+
+.user-message {
+  background-color: #e3f2fd;
+  color: #1976d2;
+  border-top-right-radius: 4px;
+}
+
+.assistant-message {
+  background-color: #f8f9fa;
+  color: #333;
+  border-top-left-radius: 4px;
+}
+
+.reasoning {
+  font-style: italic;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.answer {
+  font-weight: 500;
+}
+
+/* 加载状态 */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background-color: #f0f0f0;
+  border-radius: 12px;
+  align-self: flex-start;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #e0e0e0;
+  border-top: 2px solid #1976d2;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 错误消息 */
+.error-message {
+  padding: 12px;
+  background-color: #ffebee;
+  color: #c62828;
+  border-radius: 12px;
+  align-self: flex-start;
+  border-left: 4px solid #c62828;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .sidebar {
@@ -679,6 +880,10 @@ const closeConfig = () => {
   
   .config-dialog {
     width: 95%;
+  }
+  
+  .message-content {
+    max-width: 85%;
   }
 }
 </style>
