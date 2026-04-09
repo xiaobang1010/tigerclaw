@@ -183,6 +183,8 @@ const closeConfig = () => {
 
 .user-avatar {
   padding: 0 20px 20px;
+  display: flex;
+  justify-content: center;
 }
 
 .user-avatar img {
@@ -213,6 +215,11 @@ const closeConfig = () => {
 }
 
 .nav-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-right: 12px;
   font-size: 18px;
 }
@@ -223,6 +230,8 @@ const closeConfig = () => {
 
 .sidebar-bottom {
   padding: 20px;
+  display: flex;
+  justify-content: center;
 }
 
 .settings-btn {
@@ -316,6 +325,8 @@ const closeConfig = () => {
 
 .welcome-section {
   text-align: center;
+  max-width: 600px;
+  width: 100%;
 }
 
 .agent-item {
@@ -333,12 +344,16 @@ const closeConfig = () => {
 
 .agent-icon {
   margin-right: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .agent-icon img {
   width: 48px;
   height: 48px;
   border-radius: 8px;
+  object-fit: cover;
 }
 
 .agent-info h3 {
@@ -355,6 +370,7 @@ const closeConfig = () => {
 .welcome-message h1 {
   font-size: 32px;
   margin: 0 0 10px 0;
+  font-weight: 600;
 }
 
 .welcome-message h1 span {
@@ -393,6 +409,7 @@ const closeConfig = () => {
 .input-options {
   display: flex;
   gap: 10px;
+  align-items: center;
 }
 
 .option-item {
@@ -405,6 +422,7 @@ const closeConfig = () => {
   font-size: 14px;
   cursor: pointer;
   transition: background-color 0.2s;
+  white-space: nowrap;
 }
 
 .option-item:hover {
@@ -461,6 +479,7 @@ const closeConfig = () => {
 .config-header h2 {
   margin: 0;
   font-size: 18px;
+  font-weight: 600;
 }
 
 .close-btn {
@@ -469,6 +488,12 @@ const closeConfig = () => {
   font-size: 24px;
   cursor: pointer;
   color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 24px;
+  height: 24px;
 }
 
 .config-content {
@@ -505,6 +530,11 @@ const closeConfig = () => {
   
   .input-options {
     flex-wrap: wrap;
+  }
+  
+  .option-item {
+    font-size: 12px;
+    padding: 6px 10px;
   }
 }
 </style>
