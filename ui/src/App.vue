@@ -102,6 +102,13 @@ const handleKeyPress = (event) => {
   }
 }
 
+// 环境变量
+const envConfig = ref({
+  model: import.meta.env.VITE_OPENAI_MODEL || '未配置',
+  baseUrl: import.meta.env.VITE_OPENAI_BASE_URL || '未配置',
+  apiKey: import.meta.env.VITE_OPENAI_API_KEY ? '已配置' : '未配置'
+})
+
 // 初始化
 onMounted(() => {
   // 检查配置是否存在
@@ -266,9 +273,9 @@ onMounted(() => {
         </div>
         <div class="config-content">
           <h3>当前配置</h3>
-          <p>模型：{{ import.meta.env.VITE_OPENAI_MODEL || '未配置' }}</p>
-          <p>API地址：{{ import.meta.env.VITE_OPENAI_BASE_URL || '未配置' }}</p>
-          <p>API密钥：{{ import.meta.env.VITE_OPENAI_API_KEY ? '已配置' : '未配置' }}</p>
+          <p>模型：{{ envConfig.model }}</p>
+          <p>API地址：{{ envConfig.baseUrl }}</p>
+          <p>API密钥：{{ envConfig.apiKey }}</p>
         </div>
       </div>
     </div>
