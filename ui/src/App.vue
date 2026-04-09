@@ -8,10 +8,10 @@ const activeNav = ref('chat')
 
 // 导航菜单
 const navItems = [
-  { id: 'chat', name: '对话', icon: '💭' },
-  { id: 'inspiration', name: '灵感', icon: '✨' },
-  { id: 'task', name: '任务', icon: '✅' },
-  { id: 'help', name: '帮助', icon: '❓' },
+  { id: 'chat', name: '对话', icon: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=minimalist%20chat%20icon%2C%20blue%20color%2C%20professional%2C%20flat%20design&image_size=square' },
+  { id: 'inspiration', name: '灵感', icon: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=minimalist%20inspiration%20icon%2C%20yellow%20color%2C%20professional%2C%20flat%20design&image_size=square' },
+  { id: 'task', name: '任务', icon: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=minimalist%20task%20icon%2C%20green%20color%2C%20professional%2C%20flat%20design&image_size=square' },
+  { id: 'help', name: '帮助', icon: 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=minimalist%20help%20icon%2C%20purple%20color%2C%20professional%2C%20flat%20design&image_size=square' },
   { id: 'settings', name: '设置', icon: '⚙️' }
 ]
 
@@ -58,7 +58,8 @@ const closeConfig = () => {
           :class="{ active: activeNav === item.id }"
           @click="switchNav(item.id)"
         >
-          <span class="nav-icon">{{ item.icon }}</span>
+          <span v-if="item.id === 'settings'" class="nav-icon">{{ item.icon }}</span>
+          <img v-else :src="item.icon" :alt="item.name" class="nav-icon-image" />
           <span class="nav-name">{{ item.name }}</span>
         </div>
       </div>
@@ -236,6 +237,13 @@ const closeConfig = () => {
   justify-content: center;
   margin-right: 16px;
   font-size: 18px;
+}
+
+.nav-icon-image {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  margin-right: 16px;
 }
 
 .nav-name {
