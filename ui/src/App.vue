@@ -8,10 +8,10 @@ const activeNav = ref('chat')
 
 // 导航菜单
 const navItems = [
-  { id: 'chat', name: '对话', icon: '💬' },
-  { id: 'inspiration', name: '灵感', icon: '💡' },
-  { id: 'task', name: '任务', icon: '✓' },
-  { id: 'help', name: '帮助', icon: '?' },
+  { id: 'chat', name: '对话', icon: '💭' },
+  { id: 'inspiration', name: '灵感', icon: '✨' },
+  { id: 'task', name: '任务', icon: '✅' },
+  { id: 'help', name: '帮助', icon: '❓' },
   { id: 'settings', name: '设置', icon: '⚙️' }
 ]
 
