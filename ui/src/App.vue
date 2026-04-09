@@ -92,7 +92,7 @@ const closeConfig = () => {
         <div class="welcome-section">
           <div class="agent-item">
             <div class="agent-icon">
-              <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=red%20tiger%20claw%20icon&image_size=square" alt="TigerClaw" />
+              <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=fierce%20and%20elegant%20tiger%20claw%20logo%2C%20red%20and%20black%20color%20scheme%2C%20minimalist%20design%2C%20professional%2C%20suitable%20for%20AI%20assistant%20app&image_size=square" alt="TigerClaw" />
             </div>
             <div class="agent-info">
               <h3>TigerClaw</h3>
@@ -164,11 +164,18 @@ const closeConfig = () => {
 </template>
 
 <style scoped>
+/* 全局样式 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 .app-container {
   display: flex;
   height: 100vh;
   background-color: #f5f5f5;
-  font-family: Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 /* 左侧导航栏 */
@@ -178,19 +185,22 @@ const closeConfig = () => {
   border-right: 1px solid #e0e0e0;
   display: flex;
   flex-direction: column;
-  padding: 20px 0;
+  padding: 24px 0;
+  box-shadow: 0 0 10px rgba(0,0,0,0.05);
 }
 
 .user-avatar {
-  padding: 0 20px 20px;
+  padding: 0 24px 24px;
   display: flex;
   justify-content: center;
 }
 
 .user-avatar img {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .nav-items {
@@ -200,18 +210,22 @@ const closeConfig = () => {
 .nav-item {
   display: flex;
   align-items: center;
-  padding: 12px 20px;
+  padding: 12px 24px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  border-left: 3px solid transparent;
 }
 
 .nav-item:hover {
-  background-color: #f0f0f0;
+  background-color: #f8f9fa;
+  padding-left: 28px;
 }
 
 .nav-item.active {
   background-color: #e3f2fd;
   color: #1976d2;
+  border-left-color: #1976d2;
+  padding-left: 28px;
 }
 
 .nav-icon {
@@ -220,34 +234,37 @@ const closeConfig = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 12px;
+  margin-right: 16px;
   font-size: 18px;
 }
 
 .nav-name {
   font-size: 14px;
+  font-weight: 500;
 }
 
 .sidebar-bottom {
-  padding: 20px;
+  padding: 24px;
   display: flex;
   justify-content: center;
 }
 
 .settings-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background-color: #f0f0f0;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  border: 1px solid #e0e0e0;
 }
 
 .settings-btn:hover {
   background-color: #e0e0e0;
+  transform: scale(1.05);
 }
 
 /* 主内容区域 */
@@ -260,53 +277,82 @@ const closeConfig = () => {
 
 /* 顶部栏 */
 .top-bar {
-  padding: 20px;
+  padding: 20px 24px;
   background-color: #fff;
   border-bottom: 1px solid #e0e0e0;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .search-box {
   flex: 1;
-  max-width: 400px;
+  max-width: 450px;
+  position: relative;
 }
 
 .search-box input {
   width: 100%;
-  padding: 10px 15px;
+  padding: 12px 16px 12px 40px;
   border: 1px solid #e0e0e0;
-  border-radius: 20px;
+  border-radius: 25px;
   font-size: 14px;
+  transition: all 0.2s ease;
+  background-color: #f8f9fa;
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: #1976d2;
+  background-color: #fff;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+.search-box::before {
+  content: "🔍";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  color: #999;
 }
 
 .top-buttons {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 24px;
 }
 
 .new-agent-btn {
-  padding: 8px 16px;
+  padding: 10px 20px;
   background-color: #fff;
   border: 1px solid #e0e0e0;
-  border-radius: 20px;
+  border-radius: 25px;
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .new-agent-btn:hover {
-  background-color: #f0f0f0;
+  background-color: #f8f9fa;
+  border-color: #1976d2;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
 .usage-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-size: 14px;
   color: #666;
+  background-color: #f8f9fa;
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid #e0e0e0;
 }
 
 .clock-icon {
@@ -316,61 +362,78 @@ const closeConfig = () => {
 /* 内容区域 */
 .content-area {
   flex: 1;
-  padding: 40px;
+  padding: 48px;
   overflow-y: auto;
   display: flex;
   align-items: center;
   justify-content: center;
+  background-color: #fafafa;
 }
 
 .welcome-section {
   text-align: center;
   max-width: 600px;
   width: 100%;
+  background-color: #fff;
+  padding: 48px;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
 .agent-item {
   display: flex;
   align-items: center;
-  background-color: #fff;
-  padding: 15px;
-  border-radius: 10px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  margin-bottom: 40px;
-  width: 300px;
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  margin-bottom: 48px;
+  width: 320px;
   margin-left: auto;
   margin-right: auto;
+  transition: all 0.2s ease;
+}
+
+.agent-item:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
 }
 
 .agent-icon {
-  margin-right: 15px;
+  margin-right: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .agent-icon img {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
   object-fit: cover;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
 .agent-info h3 {
-  margin: 0 0 5px 0;
-  font-size: 16px;
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
 }
 
 .agent-info p {
   margin: 0;
   font-size: 14px;
   color: #666;
+  line-height: 1.4;
 }
 
 .welcome-message h1 {
-  font-size: 32px;
-  margin: 0 0 10px 0;
-  font-weight: 600;
+  font-size: 36px;
+  margin: 0 0 16px 0;
+  font-weight: 700;
+  color: #333;
+  line-height: 1.2;
 }
 
 .welcome-message h1 span {
@@ -378,60 +441,77 @@ const closeConfig = () => {
 }
 
 .welcome-message p {
-  font-size: 16px;
+  font-size: 18px;
   color: #666;
-  margin: 0;
+  margin: 0 0 32px 0;
+  line-height: 1.5;
 }
 
 /* 底部输入框 */
 .input-area {
-  padding: 20px;
+  padding: 24px;
   background-color: #fff;
   border-top: 1px solid #e0e0e0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
 }
 
 .input-box {
   flex: 1;
+  position: relative;
 }
 
 .input-box input {
   width: 100%;
-  padding: 12px 15px;
+  padding: 16px 20px;
   border: 1px solid #e0e0e0;
-  border-radius: 25px;
+  border-radius: 28px;
   font-size: 14px;
   resize: none;
+  transition: all 0.2s ease;
+  background-color: #f8f9fa;
+}
+
+.input-box input:focus {
+  outline: none;
+  border-color: #1976d2;
+  background-color: #fff;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
 }
 
 .input-options {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
+  flex-wrap: nowrap;
 }
 
 .option-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 10px 16px;
   background-color: #f0f0f0;
-  border-radius: 15px;
+  border-radius: 20px;
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
   white-space: nowrap;
+  border: 1px solid #e0e0e0;
 }
 
 .option-item:hover {
   background-color: #e0e0e0;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .send-btn {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background-color: #1976d2;
   color: #fff;
@@ -439,11 +519,14 @@ const closeConfig = () => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(25, 118, 210, 0.3);
 }
 
 .send-btn:hover {
   background-color: #1565c0;
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(25, 118, 210, 0.4);
 }
 
 /* 配置界面 */
@@ -458,28 +541,44 @@ const closeConfig = () => {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(4px);
 }
 
 .config-dialog {
   background-color: #fff;
-  border-radius: 10px;
-  width: 400px;
+  border-radius: 16px;
+  width: 480px;
   max-width: 90%;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  overflow: hidden;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .config-header {
-  padding: 20px;
+  padding: 24px;
   border-bottom: 1px solid #e0e0e0;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background-color: #f8f9fa;
 }
 
 .config-header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
+  color: #333;
 }
 
 .close-btn {
@@ -492,18 +591,26 @@ const closeConfig = () => {
   align-items: center;
   justify-content: center;
   padding: 0;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background-color: #e0e0e0;
+  color: #333;
 }
 
 .config-content {
-  padding: 20px;
+  padding: 32px 24px;
 }
 
 /* 响应式设计 */
 @media (max-width: 768px) {
   .sidebar {
-    width: 60px;
+    width: 64px;
+    padding: 20px 0;
   }
   
   .nav-name {
@@ -514,10 +621,21 @@ const closeConfig = () => {
     margin-right: 0;
   }
   
+  .nav-item {
+    padding: 12px;
+    justify-content: center;
+  }
+  
+  .nav-item:hover,
+  .nav-item.active {
+    padding: 12px;
+  }
+  
   .top-bar {
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
+    gap: 12px;
+    padding: 16px 20px;
   }
   
   .search-box {
@@ -525,16 +643,34 @@ const closeConfig = () => {
   }
   
   .content-area {
-    padding: 20px;
+    padding: 24px;
+  }
+  
+  .welcome-section {
+    padding: 32px;
+  }
+  
+  .agent-item {
+    width: 100%;
+  }
+  
+  .input-area {
+    padding: 16px 20px;
+    flex-wrap: wrap;
   }
   
   .input-options {
     flex-wrap: wrap;
+    gap: 8px;
   }
   
   .option-item {
     font-size: 12px;
-    padding: 6px 10px;
+    padding: 8px 12px;
+  }
+  
+  .config-dialog {
+    width: 95%;
   }
 }
 </style>
