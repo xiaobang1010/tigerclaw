@@ -4,6 +4,7 @@ Agent 运行时主入口，负责协调 LLM 调用、工具执行等。
 """
 
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
@@ -41,6 +42,8 @@ from agents.usage import (
 from core.types.messages import ChatResponse, Message, MessageChunk
 from core.types.sessions import SessionConfig
 from core.types.tools import ToolDefinition
+from services.trace.store import generate_trace_id, get_trace_store
+from services.trace.types import ExecutionTrace, ToolCallRecord
 
 
 class UsageStats:
@@ -137,6 +140,8 @@ class AgentRunner:
         self._alias_index: ModelAliasIndex = ModelAliasIndex()
         self._model_ref: ModelRef | None = None
         self._security_gateway = UnifiedSecurityGateway()
+        self._current_trace: ExecutionTrace | None = None
+        self._trace_tool_calls: list[ToolCallRecord] = []
 
     def set_auth_profiles(self, profiles: list[dict[str, Any]]) -> None:
         """设置认证配置列表。"""
@@ -304,6 +309,14 @@ class AgentRunner:
 
         try:
 
+            self._current_trace = ExecutionTrace(
+                trace_id=generate_trace_id(),
+                model=self.config.model,
+                provider=getattr(self.config, "model_provider", "openai"),
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+            self._trace_tool_calls = []
+
             @with_timeout(self._timeout_ms)
             async def _call() -> ChatResponse:
                 return await execute_with_retry(
@@ -342,12 +355,42 @@ class AgentRunner:
 
             self.context.add_message(response.message)
 
+            if self._current_trace:
+                self._current_trace.duration_ms = (datetime.now(timezone.utc) - datetime.fromisoformat(self._current_trace.timestamp)).total_seconds() * 1000
+                self._current_trace.input_tokens = self.usage.prompt_tokens
+                self._current_trace.output_tokens = self.usage.completion_tokens
+                self._current_trace.tool_calls = self._trace_tool_calls
+                self._current_trace.status = "success"
+                try:
+                    get_trace_store().save(self._current_trace)
+                except Exception:
+                    pass
+                self._current_trace = None
+
             return response
 
         except FailoverError as e:
+            if self._current_trace:
+                self._current_trace.status = "error"
+                self._current_trace.error = str(e)
+                self._current_trace.tool_calls = self._trace_tool_calls
+                try:
+                    get_trace_store().save(self._current_trace)
+                except Exception:
+                    pass
+                self._current_trace = None
             logger.error(f"Agent 执行失败: {e}")
             raise
         except Exception as e:
+            if self._current_trace:
+                self._current_trace.status = "error"
+                self._current_trace.error = str(e)
+                self._current_trace.tool_calls = self._trace_tool_calls
+                try:
+                    get_trace_store().save(self._current_trace)
+                except Exception:
+                    pass
+                self._current_trace = None
             if self._should_skip_fallback(e):
                 raise
             logger.error(f"Agent 执行失败: {e}")
@@ -520,8 +563,17 @@ class AgentRunner:
             logger.info(f"执行工具: {tool_name}")
 
             try:
+                tool_start = datetime.now(timezone.utc)
                 result = await self.tool_executor.execute(tool_name, arguments)
                 self.usage.tool_calls += 1
+                tool_duration = (datetime.now(timezone.utc) - tool_start).total_seconds() * 1000
+                self._trace_tool_calls.append(ToolCallRecord(
+                    name=tool_name,
+                    arguments=arguments if isinstance(arguments, dict) else {},
+                    result=str(result.content)[:500] if result and hasattr(result, 'content') else str(result)[:500],
+                    duration_ms=tool_duration,
+                    is_error=False,
+                ))
 
                 # 添加工具结果到上下文
                 self.context.add_message(
@@ -534,6 +586,13 @@ class AgentRunner:
 
             except Exception as e:
                 logger.error(f"工具执行失败: {tool_name}, {e}")
+                self._trace_tool_calls.append(ToolCallRecord(
+                    name=tool_name,
+                    arguments=arguments if isinstance(arguments, dict) else {},
+                    result=str(e),
+                    duration_ms=0.0,
+                    is_error=True,
+                ))
                 self.context.add_message(
                     Message(
                         role="tool",

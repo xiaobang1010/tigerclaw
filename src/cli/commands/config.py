@@ -114,13 +114,12 @@ gateway:
 
 # 模型配置
 models:
-  default: gpt-4
-  models:
-    - id: gpt-4
-      provider: openai
-      context_window: 128000
-      supports_vision: true
-      supports_tools: true
+  providers:
+    openai:
+      baseUrl: ${OPENAI_BASE_URL}
+      models:
+        - id: ${OPENAI_MODEL}
+          contextWindow: 128000
 
 # 渠道配置
 channels:
@@ -131,13 +130,14 @@ channels:
 
 # 代理配置
 agents:
-  main:
-    model: gpt-4
-    temperature: 0.7
+  defaults:
+    model: ${OPENAI_MODEL}
+    modelProvider: openai
+    timeoutSeconds: 120
 
 # 日志配置
 logging:
-  level: INFO
+  level: ${LOG_LEVEL:-INFO}
   file_enabled: false
 """
 

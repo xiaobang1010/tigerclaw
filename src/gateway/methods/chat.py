@@ -5,14 +5,17 @@
 
 import asyncio
 import json
+import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from loguru import logger
 
 from agents.providers.base import LLMProvider
+from services.trace.types import ExecutionTrace, ToolCallRecord
+from services.trace.store import get_trace_store, generate_trace_id
 from agents.runner import AgentRunner
 from agents.tool_registry import ToolRegistry
 from core.types.messages import Message
@@ -279,15 +282,25 @@ class ChatMethod:
         Returns:
             响应结果。
         """
-        session_key_str = params.get("session")
+        session_key_str = params.get("session") or params.get("session_id")
         message = params.get("message")
         messages = params.get("messages")
         stream = params.get("stream", True)
-        model = params.get("model", "gpt-4")
+        model = params.get("model", os.environ.get("OPENAI_MODEL", "gpt-4"))
         temperature = params.get("temperature", 0.7)
         max_tokens = params.get("max_tokens", 4096)
         tools = params.get("tools", [])
         tool_choice = params.get("tool_choice", "auto")
+
+        trace = ExecutionTrace(
+            trace_id=generate_trace_id(),
+            request_id=str(id(params)),
+            session_id=session_key_str or "",
+            model=model,
+            provider=self._get_provider_name(model),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            request_preview=(message or "")[:200] if message else "",
+        )
 
         if not message and not messages:
             return {"error": "缺少 message 或 messages 参数"}
@@ -337,6 +350,17 @@ class ChatMethod:
             )
 
         await self._touch_session(session_key)
+
+        trace.duration_ms = (datetime.now(timezone.utc) - datetime.fromisoformat(trace.timestamp)).total_seconds() * 1000
+        trace.input_tokens = result.get("usage", {}).get("input_tokens", 0)
+        trace.output_tokens = result.get("usage", {}).get("output_tokens", 0)
+        trace.response_preview = (result.get("content", "") or result.get("accumulated_content", ""))[:200]
+        trace.status = "error" if result.get("type") == "error" else "success"
+        trace.error = result.get("message", "")
+        try:
+            get_trace_store().save(trace)
+        except Exception:
+            pass
 
         return result
 

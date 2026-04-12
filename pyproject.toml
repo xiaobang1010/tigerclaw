@@ -32,6 +32,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "openai>=1.60.0",
     "watchdog>=5.0.0",
+    "cryptography>=46.0.6",
+    "numpy>=2.4.4",
 ]
 
 [project.optional-dependencies]
@@ -44,16 +46,6 @@ discord = ["discord.py>=2.4.0"]
 telegram = ["python-telegram-bot>=21.0"]
 google = ["google-generativeai>=0.8.0"]
 local-embedding = ["sentence-transformers>=3.0.0"]
-dev = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
-    "pytest-cov>=6.0.0",
-    "pyright>=1.1.0",
-    "ruff>=0.8.0",
-]
-all = [
-    "tigerclaw[openai,anthropic,openrouter,feishu,slack,discord,telegram,google,local-embedding,dev]",
-]
 
 [project.scripts]
 tigerclaw = "cli.main:app"
@@ -132,4 +124,12 @@ exclude_lines = [
     "def __repr__",
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pyright>=1.1.0",
+    "ruff>=0.8.0",
 ]

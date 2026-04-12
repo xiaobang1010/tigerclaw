@@ -1,0 +1,36 @@
+# TigerClaw 配置文件
+
+# Gateway 配置
+gateway:
+  bind: loopback
+  port: 18789
+  auth:
+    pairing_enabled: true
+
+# 模型配置
+models:
+  providers:
+    openai:
+      baseUrl: ${OPENAI_BASE_URL}
+      models:
+        - id: ${OPENAI_MODEL}
+          contextWindow: 128000
+
+# 渠道配置
+channels:
+  feishu:
+    enabled: false
+  slack:
+    enabled: false
+
+# 代理配置
+agents:
+  defaults:
+    model: ${OPENAI_MODEL}
+    modelProvider: openai
+    timeoutSeconds: 120
+
+# 日志配置
+logging:
+  level: ${LOG_LEVEL:-INFO}
+  file_enabled: false

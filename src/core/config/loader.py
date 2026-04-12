@@ -12,12 +12,62 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 from loguru import logger
 
 from core.types.config import TigerClawConfig
 from services.performance.cache import ConfigCache
 
+
+def _find_project_root() -> Path:
+    """向上搜索项目根目录（包含 tigerclaw.yaml 或 pyproject.toml 的目录）。"""
+    current = Path.cwd()
+    for _ in range(10):
+        if (current / "tigerclaw.yaml").exists() or (current / "pyproject.toml").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return Path.cwd()
+
+
+def _init_dotenv() -> None:
+    """加载 .env 文件到环境变量。"""
+    project_root = _find_project_root()
+    env_path = project_root / ".env"
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
+        logger.debug(f"已加载环境变量文件: {env_path}")
+    else:
+        logger.debug(f"环境变量文件不存在: {env_path}")
+
+
+_init_dotenv()
+
 _config_cache: ConfigCache | None = None
+
+
+def substitute_env_vars(value: Any) -> Any:
+    """递归替换环境变量引用。
+
+    支持格式：
+    - ${ENV_VAR} - 直接引用
+    - ${ENV_VAR:-default} - 带默认值
+    """
+    if isinstance(value, str):
+        if value.startswith("${") and value.endswith("}"):
+            inner = value[2:-1]
+            if ":-" in inner:
+                env_var, default = inner.split(":-", 1)
+                return os.environ.get(env_var, default)
+            return os.environ.get(inner, "")
+        return value
+    if isinstance(value, dict):
+        return {k: substitute_env_vars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [substitute_env_vars(item) for item in value]
+    return value
 
 
 def get_config_cache() -> ConfigCache:
@@ -56,10 +106,10 @@ class ConfigLoader:
                 return path
             raise FileNotFoundError(f"配置文件不存在: {path}")
 
-        # 按优先级搜索配置文件
         search_paths = [
             Path.cwd() / self.DEFAULT_CONFIG_NAME,
             Path.cwd() / "config" / self.DEFAULT_CONFIG_NAME,
+            _find_project_root() / self.DEFAULT_CONFIG_NAME,
             Path.home() / ".tigerclaw" / self.DEFAULT_CONFIG_NAME,
         ]
 
@@ -81,25 +131,7 @@ class ConfigLoader:
             return content if content else {}
 
     def _substitute_env_vars(self, value: Any) -> Any:
-        """递归替换环境变量引用。
-
-        支持格式：
-        - ${ENV_VAR} - 直接引用
-        - ${ENV_VAR:-default} - 带默认值
-        """
-        if isinstance(value, str):
-            if value.startswith("${") and value.endswith("}"):
-                inner = value[2:-1]
-                if ":-" in inner:
-                    env_var, default = inner.split(":-", 1)
-                    return os.environ.get(env_var, default)
-                return os.environ.get(inner, "")
-            return value
-        if isinstance(value, dict):
-            return {k: self._substitute_env_vars(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [self._substitute_env_vars(item) for item in value]
-        return value
+        return substitute_env_vars(value)
 
     def _apply_env_overrides(self, config: dict[str, Any]) -> dict[str, Any]:
         """应用环境变量覆盖。"""

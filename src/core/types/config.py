@@ -528,6 +528,13 @@ class TigerClawConfig(BaseModel):
     model_config = {"use_enum_values": True}
 
 
+_types_ns = {**globals()}
+AgentsConfig.model_rebuild(_types_namespace=_types_ns)
+from core.types.providers import AgentDefaultsConfig  # noqa: E402
+AgentDefaultsConfig.model_rebuild(_types_namespace=_types_ns)
+TigerClawConfig.model_rebuild()
+
+
 def resolve_model_fallbacks(cfg: AgentsConfig, model: str) -> list[str]:
     """解析模型的降级列表。
 

@@ -3,15 +3,19 @@
 定义所有 LLM 提供商必须实现的接口。
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from agents.plugins.types import ProviderCapabilities, ProviderRuntimeHooks
 from core.types.messages import ChatResponse, Message, MessageChunk
 from core.types.tools import ToolDefinition
+
+if TYPE_CHECKING:
+    from agents.plugins.types import ProviderCapabilities, ProviderRuntimeHooks
 
 
 class ProviderConfig(BaseModel):
