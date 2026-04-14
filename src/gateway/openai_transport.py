@@ -239,7 +239,11 @@ async def stream_http_response(
     Yields:
         流式事件
     """
+    import os
+
     import httpx
+
+    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -299,7 +303,7 @@ async def stream_http_response(
     try:
         async with httpx.AsyncClient(timeout=120.0) as client, client.stream(
             "POST",
-            "https://api.openai.com/v1/chat/completions",
+            f"{base_url.rstrip('/')}/chat/completions",
             headers=headers,
             json=payload,
         ) as response:
@@ -327,67 +331,67 @@ async def stream_http_response(
                 if not choices:
                     continue
 
-                    delta = choices[0].get("delta", {})
-                    finish_reason = choices[0].get("finish_reason")
+                delta = choices[0].get("delta", {})
+                finish_reason = choices[0].get("finish_reason")
 
-                    if "content" in delta and delta["content"]:
-                        current_text += delta["content"]
-                        yield StreamEvent(type="text_delta", delta=delta["content"])
+                if "content" in delta and delta["content"]:
+                    current_text += delta["content"]
+                    yield StreamEvent(type="text_delta", delta=delta["content"])
 
-                    if "tool_calls" in delta:
-                        for tool_call_delta in delta["tool_calls"]:
-                            idx = tool_call_delta.get("index", 0)
-                            if idx not in current_tool_calls:
-                                current_tool_calls[idx] = {
-                                    "id": "",
-                                    "name": "",
-                                    "arguments": "",
-                                }
+                if "tool_calls" in delta and delta["tool_calls"]:
+                    for tool_call_delta in delta["tool_calls"]:
+                        idx = tool_call_delta.get("index", 0)
+                        if idx not in current_tool_calls:
+                            current_tool_calls[idx] = {
+                                "id": "",
+                                "name": "",
+                                "arguments": "",
+                            }
 
-                            if "id" in tool_call_delta:
-                                current_tool_calls[idx]["id"] = tool_call_delta["id"]
-                            if "function" in tool_call_delta:
-                                func = tool_call_delta["function"]
-                                if "name" in func:
-                                    current_tool_calls[idx]["name"] = func["name"]
-                                if "arguments" in func:
-                                    current_tool_calls[idx]["arguments"] += func["arguments"]
+                        if "id" in tool_call_delta:
+                            current_tool_calls[idx]["id"] = tool_call_delta["id"]
+                        if "function" in tool_call_delta:
+                            func = tool_call_delta["function"]
+                            if "name" in func:
+                                current_tool_calls[idx]["name"] = func["name"]
+                            if "arguments" in func:
+                                current_tool_calls[idx]["arguments"] += func["arguments"]
 
-                    if finish_reason:
-                        content: list[dict[str, Any]] = []
-                        if current_text:
-                            content.append({"type": "text", "text": current_text})
+                if finish_reason:
+                    content: list[dict[str, Any]] = []
+                    if current_text:
+                        content.append({"type": "text", "text": current_text})
 
-                        import json as json_module
+                    import json as json_module
 
-                        for idx in sorted(current_tool_calls.keys()):
-                            tc = current_tool_calls[idx]
-                            try:
-                                args = json_module.loads(tc["arguments"])
-                            except json_module.JSONDecodeError:
-                                args = {}
-                            content.append(
-                                {
-                                    "type": "tool_use",
-                                    "id": tc["id"],
-                                    "name": tc["name"],
-                                    "arguments": args,
-                                }
-                            )
-
-                        stop_reason = "tool_use" if current_tool_calls else "stop"
-                        message: dict[str, Any] = {
-                            "role": "assistant",
-                            "content": content,
-                            "stop_reason": stop_reason,
-                            "model": options.model,
-                        }
-
-                        yield StreamEvent(
-                            type="done",
-                            message=message,
-                            response_id=response_id,
+                    for idx in sorted(current_tool_calls.keys()):
+                        tc = current_tool_calls[idx]
+                        try:
+                            args = json_module.loads(tc["arguments"])
+                        except json_module.JSONDecodeError:
+                            args = {}
+                        content.append(
+                            {
+                                "type": "tool_use",
+                                "id": tc["id"],
+                                "name": tc["name"],
+                                "arguments": args,
+                            }
                         )
+
+                    stop_reason = "tool_use" if current_tool_calls else "stop"
+                    message: dict[str, Any] = {
+                        "role": "assistant",
+                        "content": content,
+                        "stop_reason": stop_reason,
+                        "model": options.model,
+                    }
+
+                    yield StreamEvent(
+                        type="done",
+                        message=message,
+                        response_id=response_id,
+                    )
 
     except httpx.HTTPStatusError as e:
         yield StreamEvent(type="error", error=f"HTTP 错误: {e.response.status_code}")

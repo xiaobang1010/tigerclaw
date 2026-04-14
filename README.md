@@ -67,14 +67,9 @@ flowchart LR
 git clone https://github.com/openclaw/tigerclaw.git
 cd tigerclaw
 
-uv venv
-.venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # Linux/macOS
+uv sync
 
-uv pip install -e ".[dev]"
-
-# 按需安装可选能力
-uv pip install -e ".[openai,anthropic,openrouter,feishu]"
+cd ui && npm install && cd ..
 ```
 
 ## 快速开始
@@ -82,33 +77,67 @@ uv pip install -e ".[openai,anthropic,openrouter,feishu]"
 ### 1. 初始化配置
 
 ```bash
-tigerclaw config init
+uv run tigerclaw config init
 ```
 
-### 2. 启动 Gateway
+### 2. 配置环境变量
+
+复制示例文件并填写你的 API 密钥：
 
 ```bash
-tigerclaw gateway start
-
-# 指定地址和端口
-tigerclaw gateway start --bind 127.0.0.1 --port 18789
+cp .env.example .env
 ```
 
-### 3. 查看诊断信息
+编辑 `.env`，填入你的大模型 API 配置：
 
-```bash
-tigerclaw doctor info
-tigerclaw doctor check
+```env
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://api-inference.modelscope.cn/v1
+OPENAI_MODEL=ZhipuAI/GLM-5
 ```
 
-### 4. 常用管理命令
+前端也需要单独配置，在 `ui/` 目录下创建 `.env.local`：
+
+```env
+VITE_OPENAI_BASE_URL=https://api-inference.modelscope.cn/v1
+VITE_OPENAI_API_KEY=your-api-key
+VITE_OPENAI_MODEL=ZhipuAI/GLM-5
+VITE_GATEWAY_URL=http://localhost:18789
+```
+
+### 3. 启动后端
 
 ```bash
-tigerclaw config list
-tigerclaw models --help
-tigerclaw sessions --help
-tigerclaw approvals --help
-tigerclaw browser --help
+uv run tigerclaw gateway start
+
+# 或指定地址和端口
+uv run tigerclaw gateway start --bind 127.0.0.1 --port 18789
+```
+
+### 4. 启动前端
+
+```bash
+cd ui
+npm run dev
+```
+
+前端默认运行在 http://localhost:5173，通过 Vite proxy 代理到后端 `http://localhost:18789`。
+
+### 5. 查看诊断信息
+
+```bash
+uv run tigerclaw doctor info
+uv run tigerclaw doctor check
+```
+
+### 6. 常用管理命令
+
+```bash
+uv run tigerclaw config list
+uv run tigerclaw models --help
+uv run tigerclaw sessions --help
+uv run tigerclaw approvals --help
+uv run tigerclaw browser --help
 ```
 
 ## 配置示例
@@ -272,8 +301,14 @@ tigerclaw/
 │   │   ├── cron/        #   定时任务（at / every / cron）
 │   │   ├── memory/      #   记忆服务（内存/文件/SQLite/向量）
 │   │   ├── performance/ #   性能优化（缓存/连接池/异步优化器）
-│   │   └── skills/      #   技能系统
+│   │   ├── skills/      #   技能系统
+│   │   └── trace/       #   LLM 执行轨迹记录（SQLite 存储）
 │   └── sessions/        # 会话管理（内存缓存 + SQLite 持久化）
+├── ui/                  # 前端（Vue 3 + Vite）
+│   ├── src/
+│   │   ├── components/  #   页面组件（聊天/轨迹等）
+│   │   └── services/    #   API 服务层
+│   └── vite.config.js   #   Vite 配置（含后端代理）
 └── tests/               # 测试
 ```
 

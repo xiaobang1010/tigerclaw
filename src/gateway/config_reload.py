@@ -196,6 +196,9 @@ class ConfigReloader:
             with open(self.config_path, encoding="utf-8") as f:
                 raw_config = yaml.safe_load(f) or {}
 
+            from core.config.loader import substitute_env_vars
+
+            raw_config = substitute_env_vars(raw_config)
             config = TigerClawConfig(**raw_config)
             return config, raw_config
 

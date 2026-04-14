@@ -28,6 +28,7 @@ from gateway.openai_http import (
     handle_openai_chat_completions,
 )
 from gateway.rate_limit import AuthRateLimiter, RateLimitConfig, create_auth_rate_limiter
+from gateway.methods.traces import router as traces_router
 from sessions.manager import SessionManager
 
 router = APIRouter()
@@ -141,6 +142,9 @@ async def require_auth(
     return user
 
 
+router.include_router(traces_router)
+
+
 class HealthResponse:
     """健康检查响应。"""
 
@@ -228,18 +232,21 @@ async def list_sessions(
 
 
 @router.get("/models")
-async def list_models(user: dict[str, Any] | None = Depends(get_current_user)):
+async def list_models(request: Request, user: dict[str, Any] | None = Depends(get_current_user)):
     """列出可用模型。
 
     可选认证。
     """
-    return {
-        "models": [
-            {"id": "gpt-4", "provider": "openai"},
-            {"id": "claude-3-5-sonnet", "provider": "anthropic"},
-            {"id": "openrouter/auto", "provider": "openrouter"},
-        ]
-    }
+    config = getattr(request.app.state, "config", None)
+    models_list = []
+    if config and hasattr(config, "models") and config.models.providers:
+        for provider_name, provider_entry in config.models.providers.items():
+            for model_cfg in provider_entry.models:
+                models_list.append({"id": model_cfg.id, "provider": provider_name})
+    if not models_list:
+        default_model = os.environ.get("OPENAI_MODEL", "gpt-4")
+        models_list = [{"id": default_model, "provider": "openai"}]
+    return {"models": models_list}
 
 
 @router.get("/tools")

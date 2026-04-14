@@ -9,7 +9,6 @@ build/
 *.egg-info/
 .coverage
 htmlcov/
-*.lock
 
 context/
 docs/
@@ -17,3 +16,4 @@ tests/
 
 AGENTS.md
 .trae/
+.tigerclaw/

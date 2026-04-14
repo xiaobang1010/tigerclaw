@@ -13,14 +13,14 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.types.messages import (
+from core.types.messages import (
     ContentBlock,
     ImageContent,
     Message,
     MessageRole,
     TextContent,
 )
-from src.core.types.tools import ToolCall
+from core.types.tools import ToolCall
 
 IMAGE_ONLY_USER_MESSAGE = "User sent image(s) with no text."
 

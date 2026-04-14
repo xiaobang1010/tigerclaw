@@ -24,17 +24,9 @@ class RequestContextInjector:
     """
 
     def __call__(self, record: dict[str, Any]) -> bool:
-        """注入请求上下文到日志记录。
-
-        Args:
-            record: loguru 日志记录字典。
-
-        Returns:
-            总是返回 True，允许日志通过。
-        """
         ctx = get_request_context()
+        extra = record.setdefault("extra", {})
         if ctx:
-            extra = record.setdefault("extra", {})
             extra["request_id"] = ctx.request_id
             if ctx.user_id:
                 extra["user_id"] = ctx.user_id
@@ -42,6 +34,8 @@ class RequestContextInjector:
                 extra["session_id"] = ctx.session_id
             if ctx.source:
                 extra["source"] = ctx.source
+        else:
+            extra.setdefault("request_id", "-")
         return True
 
 
