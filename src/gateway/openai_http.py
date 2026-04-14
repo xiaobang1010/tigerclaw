@@ -69,6 +69,7 @@ class OpenAIChatCompletionRequest(BaseModel):
     temperature: float | None = Field(None, ge=0, le=2, description="温度参数")
     max_tokens: int | None = Field(None, ge=1, description="最大Token数")
     user: str | None = Field(None, description="用户标识")
+    session_id: str | None = Field(None, description="会话ID")
 
 
 class OpenAIChatChoice(BaseModel):
@@ -564,6 +565,18 @@ async def handle_openai_chat_completions(
     Returns:
         JSONResponse 或 StreamingResponse。
     """
+    config = getattr(request.app.state, "config", None)
+
+    if not chat_request.model:
+        if config:
+            default_model = getattr(config, "agents", None)
+            if default_model:
+                defaults = getattr(default_model, "defaults", None)
+                if defaults:
+                    chat_request.model = getattr(defaults, "model", "") or ""
+        if not chat_request.model:
+            chat_request.model = os.environ.get("OPENAI_MODEL", "")
+
     validation_error = validate_chat_completion_request(chat_request)
     if validation_error:
         return validation_error

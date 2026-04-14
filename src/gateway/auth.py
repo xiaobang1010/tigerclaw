@@ -461,6 +461,9 @@ async def authorize_gateway_connect(
         if not auth.token:
             return GatewayAuthResult(ok=False, reason="token_missing_config")
 
+        if local_direct and (not connect_auth or not connect_auth.token):
+            return GatewayAuthResult(ok=True, method=AuthMethod.NONE)
+
         if not connect_auth or not connect_auth.token:
             return GatewayAuthResult(ok=False, reason="token_missing")
 

@@ -140,9 +140,6 @@ const dismissError = () => {
 }
 
 onMounted(() => {
-  if (!import.meta.env.VITE_OPENAI_API_KEY) {
-    errorMessage.value = '请在.env.local文件中配置API密钥'
-  }
 })
 </script>
 

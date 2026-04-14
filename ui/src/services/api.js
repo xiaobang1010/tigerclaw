@@ -4,21 +4,11 @@ export const sendChatRequest = async (messages, sessionId = '') => {
   const headers = {
     'Content-Type': 'application/json',
   };
-  const token = import.meta.env.VITE_GATEWAY_TOKEN;
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
   const body = JSON.stringify({
-    model: import.meta.env.VITE_OPENAI_MODEL,
+    model: '',
     messages,
     stream: true,
     session_id: sessionId
-  });
-  console.log('[sendChatRequest] Sending request:', {
-    url: '/api/v1/chat/completions',
-    token: token ? '***' : '(empty)',
-    model: import.meta.env.VITE_OPENAI_MODEL,
-    messagesCount: messages.length
   });
 
   try {
